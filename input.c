@@ -170,6 +170,8 @@ static void	input_csi_dispatch_rm_private(struct input_ctx *);
 static void	input_csi_dispatch_sm(struct input_ctx *);
 static void	input_csi_dispatch_sm_private(struct input_ctx *);
 static void	input_csi_dispatch_sm_graphics(struct input_ctx *);
+static void	input_csi_dispatch_decrqm(struct input_ctx *);
+static void	input_csi_dispatch_decrqm_private(struct input_ctx *);
 static void	input_csi_dispatch_winops(struct input_ctx *);
 static void	input_csi_dispatch_sgr_256(struct input_ctx *, int, u_int *);
 static void	input_csi_dispatch_sgr_rgb(struct input_ctx *, int, u_int *);
@@ -239,6 +241,8 @@ enum input_csi_type {
 	INPUT_CSI_DA,
 	INPUT_CSI_DA_TWO,
 	INPUT_CSI_DCH,
+	INPUT_CSI_DECRQM,
+	INPUT_CSI_DECRQM_PRIVATE,
 	INPUT_CSI_DECSCUSR,
 	INPUT_CSI_DECSTBM,
 	INPUT_CSI_DL,
@@ -252,7 +256,6 @@ enum input_csi_type {
 	INPUT_CSI_IL,
 	INPUT_CSI_MODOFF,
 	INPUT_CSI_MODSET,
-	INPUT_CSI_QUERY_PRIVATE,
 	INPUT_CSI_RCP,
 	INPUT_CSI_REP,
 	INPUT_CSI_RM,
@@ -272,48 +275,49 @@ enum input_csi_type {
 
 /* Control (CSI) command table. */
 static const struct input_table_entry input_csi_table[] = {
-	{ '@', "",  INPUT_CSI_ICH },
-	{ 'A', "",  INPUT_CSI_CUU },
-	{ 'B', "",  INPUT_CSI_CUD },
-	{ 'C', "",  INPUT_CSI_CUF },
-	{ 'D', "",  INPUT_CSI_CUB },
-	{ 'E', "",  INPUT_CSI_CNL },
-	{ 'F', "",  INPUT_CSI_CPL },
-	{ 'G', "",  INPUT_CSI_HPA },
-	{ 'H', "",  INPUT_CSI_CUP },
-	{ 'J', "",  INPUT_CSI_ED },
-	{ 'K', "",  INPUT_CSI_EL },
-	{ 'L', "",  INPUT_CSI_IL },
-	{ 'M', "",  INPUT_CSI_DL },
-	{ 'P', "",  INPUT_CSI_DCH },
-	{ 'S', "",  INPUT_CSI_SU },
-	{ 'S', "?", INPUT_CSI_SM_GRAPHICS },
-	{ 'T', "",  INPUT_CSI_SD },
-	{ 'X', "",  INPUT_CSI_ECH },
-	{ 'Z', "",  INPUT_CSI_CBT },
-	{ '`', "",  INPUT_CSI_HPA },
-	{ 'b', "",  INPUT_CSI_REP },
-	{ 'c', "",  INPUT_CSI_DA },
-	{ 'c', ">", INPUT_CSI_DA_TWO },
-	{ 'd', "",  INPUT_CSI_VPA },
-	{ 'f', "",  INPUT_CSI_CUP },
-	{ 'g', "",  INPUT_CSI_TBC },
-	{ 'h', "",  INPUT_CSI_SM },
-	{ 'h', "?", INPUT_CSI_SM_PRIVATE },
-	{ 'l', "",  INPUT_CSI_RM },
-	{ 'l', "?", INPUT_CSI_RM_PRIVATE },
-	{ 'm', "",  INPUT_CSI_SGR },
-	{ 'm', ">", INPUT_CSI_MODSET },
-	{ 'n', "",  INPUT_CSI_DSR },
-	{ 'n', ">", INPUT_CSI_MODOFF },
-	{ 'n', "?", INPUT_CSI_DSR_PRIVATE },
-	{ 'p', "?$", INPUT_CSI_QUERY_PRIVATE },
-	{ 'q', " ", INPUT_CSI_DECSCUSR },
-	{ 'q', ">", INPUT_CSI_XDA },
-	{ 'r', "",  INPUT_CSI_DECSTBM },
-	{ 's', "",  INPUT_CSI_SCP },
-	{ 't', "",  INPUT_CSI_WINOPS },
-	{ 'u', "",  INPUT_CSI_RCP }
+	{ '@', "",   INPUT_CSI_ICH },
+	{ 'A', "",   INPUT_CSI_CUU },
+	{ 'B', "",   INPUT_CSI_CUD },
+	{ 'C', "",   INPUT_CSI_CUF },
+	{ 'D', "",   INPUT_CSI_CUB },
+	{ 'E', "",   INPUT_CSI_CNL },
+	{ 'F', "",   INPUT_CSI_CPL },
+	{ 'G', "",   INPUT_CSI_HPA },
+	{ 'H', "",   INPUT_CSI_CUP },
+	{ 'J', "",   INPUT_CSI_ED },
+	{ 'K', "",   INPUT_CSI_EL },
+	{ 'L', "",   INPUT_CSI_IL },
+	{ 'M', "",   INPUT_CSI_DL },
+	{ 'P', "",   INPUT_CSI_DCH },
+	{ 'S', "",   INPUT_CSI_SU },
+	{ 'S', "?",  INPUT_CSI_SM_GRAPHICS },
+	{ 'T', "",   INPUT_CSI_SD },
+	{ 'X', "",   INPUT_CSI_ECH },
+	{ 'Z', "",   INPUT_CSI_CBT },
+	{ '`', "",   INPUT_CSI_HPA },
+	{ 'b', "",   INPUT_CSI_REP },
+	{ 'c', "",   INPUT_CSI_DA },
+	{ 'c', ">",  INPUT_CSI_DA_TWO },
+	{ 'd', "",   INPUT_CSI_VPA },
+	{ 'f', "",   INPUT_CSI_CUP },
+	{ 'g', "",   INPUT_CSI_TBC },
+	{ 'h', "",   INPUT_CSI_SM },
+	{ 'h', "?",  INPUT_CSI_SM_PRIVATE },
+	{ 'l', "",   INPUT_CSI_RM },
+	{ 'l', "?",  INPUT_CSI_RM_PRIVATE },
+	{ 'm', "",   INPUT_CSI_SGR },
+	{ 'm', ">",  INPUT_CSI_MODSET },
+	{ 'n', "",   INPUT_CSI_DSR },
+	{ 'n', ">",  INPUT_CSI_MODOFF },
+	{ 'n', "?",  INPUT_CSI_DSR_PRIVATE },
+	{ 'p', "$",  INPUT_CSI_DECRQM },
+	{ 'p', "?$", INPUT_CSI_DECRQM_PRIVATE },
+	{ 'q', " ",  INPUT_CSI_DECSCUSR },
+	{ 'q', ">",  INPUT_CSI_XDA },
+	{ 'r', "",   INPUT_CSI_DECSTBM },
+	{ 's', "",   INPUT_CSI_SCP },
+	{ 't', "",   INPUT_CSI_WINOPS },
+	{ 'u', "",   INPUT_CSI_RCP }
 };
 
 /* Input transition. */
@@ -1391,8 +1395,7 @@ input_csi_dispatch(struct input_ctx *ictx)
 	struct screen_write_ctx	       *sctx = &ictx->ctx;
 	struct screen		       *s = sctx->s;
 	struct input_table_entry       *entry;
-	struct options		       *oo;
-	int				i, n, m, ek, set, p;
+	int				i, n, m, ek, set;
 	u_int				cx, bg = ictx->cell.cell.bg;
 
 	if (ictx->flags & INPUT_DISCARD)
@@ -1556,41 +1559,6 @@ input_csi_dispatch(struct input_ctx *ictx)
 		switch (input_get(ictx, 0, 0, 0)) {
 		case 996:
 			input_report_current_theme(ictx);
-			break;
-		}
-		break;
-	case INPUT_CSI_QUERY_PRIVATE:
-		switch (input_get(ictx, 0, 0, 0)) {
-		case 12: /* cursor blink: 1 = blink, 2 = steady */
-			if (s->cstyle != SCREEN_CURSOR_DEFAULT ||
-			    s->mode & MODE_CURSOR_BLINKING_SET)
-				n = (s->mode & MODE_CURSOR_BLINKING) ? 1 : 2;
-			else {
-				if (ictx->wp != NULL)
-					oo = ictx->wp->options;
-				else
-					oo = global_options;
-				p = options_get_number(oo, "cursor-style");
-
-				/* blink for 1,3,5; steady for 0,2,4,6 */
- 				n = (p == 1 || p == 3 || p == 5) ? 1 : 2;
-			}
-			input_reply(ictx, "\033[?12;%d$y", n);
-			break;
-		case 2004: /* bracketed paste */
-			n = (s->mode & MODE_BRACKETPASTE) ? 1 : 2;
-			input_reply(ictx, "\033[?2004;%d$y", n);
-			break;
-		case 1004: /* focus reporting */
-			n = (s->mode & MODE_FOCUSON) ? 1 : 2;
-			input_reply(ictx, "\033[?1004;%d$y", n);
-			break;
-		case 1006: /* SGR mouse */
-			n = (s->mode & MODE_MOUSE_SGR) ? 1 : 2;
-			input_reply(ictx, "\033[?1006;%d$y", n);
-			break;
-		case 2031:
-			input_reply(ictx, "\033[?2031;2$y");
 			break;
 		}
 		break;
@@ -1760,6 +1728,12 @@ input_csi_dispatch(struct input_ctx *ictx)
 		if (n == 0)
 			input_reply(ictx, "\033P>|tmux %s\033\\", getversion());
 		break;
+	case INPUT_CSI_DECRQM:
+		input_csi_dispatch_decrqm(ictx);
+		break;
+	case INPUT_CSI_DECRQM_PRIVATE:
+		input_csi_dispatch_decrqm_private(ictx);
+		break;
 
 	}
 
@@ -1781,7 +1755,7 @@ input_csi_dispatch_rm(struct input_ctx *ictx)
 		case 4:		/* IRM */
 			screen_write_mode_clear(sctx, MODE_INSERT);
 			break;
-		case 34:
+		case 34:	/* SCSTCURM */
 			screen_write_mode_set(sctx, MODE_CURSOR_VERY_VISIBLE);
 			break;
 		default:
@@ -1791,7 +1765,7 @@ input_csi_dispatch_rm(struct input_ctx *ictx)
 	}
 }
 
-/* Handle CSI private RM. */
+/* Handle CSI DECRST (private RM). */
 static void
 input_csi_dispatch_rm_private(struct input_ctx *ictx)
 {
@@ -1817,36 +1791,36 @@ input_csi_dispatch_rm_private(struct input_ctx *ictx)
 		case 7:		/* DECAWM */
 			screen_write_mode_clear(sctx, MODE_WRAP);
 			break;
-		case 12:
+		case 12:	/* ATTCUBL */
 			screen_write_mode_clear(sctx, MODE_CURSOR_BLINKING);
 			screen_write_mode_set(sctx, MODE_CURSOR_BLINKING_SET);
 			break;
-		case 25:	/* TCEM */
+		case 25:	/* DECTCEM */
 			screen_write_mode_clear(sctx, MODE_CURSOR);
 			break;
-		case 1000:
-		case 1001:
-		case 1002:
-		case 1003:
+		case 1000:	/* XT_MSE_X11 */
+		case 1001:	/* XT_MSE_HL */
+		case 1002:	/* XT_MSE_BTN */
+		case 1003:	/* XT_MSE_ANY */
 			screen_write_mode_clear(sctx, ALL_MOUSE_MODES);
 			break;
-		case 1004:
+		case 1004:	/* XT_MSE_WIN */
 			screen_write_mode_clear(sctx, MODE_FOCUSON);
 			break;
-		case 1005:
+		case 1005:	/* XT_MSE_UTF */
 			screen_write_mode_clear(sctx, MODE_MOUSE_UTF8);
 			break;
-		case 1006:
+		case 1006:	/* XT_MSE_SGR */
 			screen_write_mode_clear(sctx, MODE_MOUSE_SGR);
 			break;
-		case 47:
-		case 1047:
+		case 47:	/* XT_ALTSCRN */
+		case 1047:	/* XT_ALTS_47 */
 			screen_write_alternateoff(sctx, gc, 0);
 			break;
-		case 1049:
+		case 1049:	/* XT_EXTSCRN */
 			screen_write_alternateoff(sctx, gc, 1);
 			break;
-		case 2004:
+		case 2004:	/* RL_BRACKET */
 			screen_write_mode_clear(sctx, MODE_BRACKETPASTE);
 			break;
 		case 2031:
@@ -1873,7 +1847,7 @@ input_csi_dispatch_sm(struct input_ctx *ictx)
 		case 4:		/* IRM */
 			screen_write_mode_set(sctx, MODE_INSERT);
 			break;
-		case 34:
+		case 34:	/* SCSTCURM */
 			screen_write_mode_clear(sctx, MODE_CURSOR_VERY_VISIBLE);
 			break;
 		default:
@@ -1883,7 +1857,7 @@ input_csi_dispatch_sm(struct input_ctx *ictx)
 	}
 }
 
-/* Handle CSI private SM. */
+/* Handle CSI DECSET (private SM). */
 static void
 input_csi_dispatch_sm_private(struct input_ctx *ictx)
 {
@@ -1909,42 +1883,42 @@ input_csi_dispatch_sm_private(struct input_ctx *ictx)
 		case 7:		/* DECAWM */
 			screen_write_mode_set(sctx, MODE_WRAP);
 			break;
-		case 12:
+		case 12:	/* ATTCUBL */
 			screen_write_mode_set(sctx, MODE_CURSOR_BLINKING);
 			screen_write_mode_set(sctx, MODE_CURSOR_BLINKING_SET);
 			break;
-		case 25:	/* TCEM */
+		case 25:	/* DECTCEM */
 			screen_write_mode_set(sctx, MODE_CURSOR);
 			break;
-		case 1000:
+		case 1000:	/* XT_MSE_X11 */
 			screen_write_mode_clear(sctx, ALL_MOUSE_MODES);
 			screen_write_mode_set(sctx, MODE_MOUSE_STANDARD);
 			break;
-		case 1002:
+		case 1002:	/* XT_MSE_BTN */
 			screen_write_mode_clear(sctx, ALL_MOUSE_MODES);
 			screen_write_mode_set(sctx, MODE_MOUSE_BUTTON);
 			break;
-		case 1003:
+		case 1003:	/* XT_MSE_ANY */
 			screen_write_mode_clear(sctx, ALL_MOUSE_MODES);
 			screen_write_mode_set(sctx, MODE_MOUSE_ALL);
 			break;
-		case 1004:
+		case 1004:	/* XT_MSE_WIN */
 			screen_write_mode_set(sctx, MODE_FOCUSON);
 			break;
-		case 1005:
+		case 1005:	/* XT_MSE_UTF */
 			screen_write_mode_set(sctx, MODE_MOUSE_UTF8);
 			break;
-		case 1006:
+		case 1006:	/* XT_MSE_SGR */
 			screen_write_mode_set(sctx, MODE_MOUSE_SGR);
 			break;
-		case 47:
-		case 1047:
+		case 47:	/* XT_ALTSCRN */
+		case 1047:	/* XT_ALTS_47 */
 			screen_write_alternateon(sctx, gc, 0);
 			break;
-		case 1049:
+		case 1049:	/* XT_EXTSCRN */
 			screen_write_alternateon(sctx, gc, 1);
 			break;
-		case 2004:
+		case 2004:	/* RL_BRACKET */
 			screen_write_mode_set(sctx, MODE_BRACKETPASTE);
 			break;
 		case 2031:
@@ -1975,6 +1949,167 @@ input_csi_dispatch_sm_graphics(__unused struct input_ctx *ictx)
 	else
 		input_reply(ictx, "\033[?%d;3;%dS", n, o);
 #endif
+}
+
+/* Handle CSI DECRQM (ANSI modes). */
+static void
+input_csi_dispatch_decrqm(struct input_ctx *ictx)
+{
+	struct screen	*s = ictx->ctx.s;
+	int		 m, v;
+
+	m = input_get(ictx, 0, 0, -1);
+	switch (m) {
+	case -1:
+		return;
+	case 1:		/* GATM */
+	case 5:		/* SRTM */
+	case 6:		/* ERM */
+	case 7:		/* VEM */
+	case 8:		/* BDSM */
+	case 9:		/* DCSM */
+	case 10:	/* HEM */
+	case 11:	/* PUM */
+	case 13:	/* FEAM */
+	case 14:	/* FETM */
+	case 15:	/* MATM */
+	case 16:	/* TTM */
+	case 17:	/* SATM */
+	case 18:	/* TSM */
+	case 19:	/* EBM */
+	case 21:	/* GRCM */
+	case 22:	/* ZDM */
+	case 2:		/* KAM */
+	case 3:		/* CRM */
+	case 12:	/* SRM */
+		v = 4;
+		break;
+	case 4:		/* IRM */
+		v = !(s->mode & MODE_INSERT) + 1;
+		break;
+	case 20:	/* LNM */
+		/* Can't yet be changed by SM/RM */
+		v = !(s->mode & MODE_CRLF) + 3;
+		break;
+	case 34:	/* SCSTCURM */
+		v = !!(s->mode & MODE_CURSOR_VERY_VISIBLE) + 1;
+		break;
+	default:
+		log_debug("%s: unknown %d", __func__, m);
+		v = 0;
+		break;
+	}
+	log_debug("%s: reporting %d for mode %d", __func__, v, m);
+	input_reply(ictx, "\033[%d;%d$y", m, v);
+}
+
+/* Handle CSI DECRQM (private modes). */
+static void
+input_csi_dispatch_decrqm_private(struct input_ctx *ictx)
+{
+	struct screen	*s = ictx->ctx.s;
+	struct options	*oo;
+	int		 m, v, p;
+
+	m = input_get(ictx, 0, 0, -1);
+	switch (m) {
+	case -1:
+		return;
+	case 1:		/* DECCKM */
+		v = !(s->mode & MODE_KCURSOR) + 1;
+		break;
+	case 2:		/* DECANM */
+		/* No VT52 mode here */
+		v = 3;
+		break;
+	case 3:		/* DECCOLM */
+		/* Not really supported here */
+		v = 4;
+		break;
+	case 4:		/* DECSCLM */
+	case 5:		/* DECSCNM */
+		/* Not supported */
+		v = 4;
+		break;
+	case 6:		/* DECOM */
+		v = !(s->mode & MODE_ORIGIN) + 1;
+		break;
+	case 7:		/* DECAWM */
+		v = !(s->mode & MODE_WRAP) + 1;
+		break;
+	case 8:		/* DECARM */
+		/* Really depends on the client */
+		v = 3;
+		break;
+	case 12:	/* ATTCUBL */
+	case 13:	/* XT_OPTBLNK */
+		/* cursor blink: 1 = blink, 2 = steady */
+		if (s->cstyle != SCREEN_CURSOR_DEFAULT ||
+		    s->mode & MODE_CURSOR_BLINKING_SET)
+			v = !(s->mode & MODE_CURSOR_BLINKING) + 1;
+		else {
+			if (ictx->wp != NULL)
+				oo = ictx->wp->options;
+			else
+				oo = global_options;
+			p = options_get_number(oo, "cursor-style");
+
+			/* blink for 1,3,5; steady for 0,2,4,6 */
+			v = (p == 1 || p == 3 || p == 5) ? 1 : 2;
+		}
+		break;
+	case 14:	/* XT_XORBLNK */
+		/* 3 = XT_OPTBLNK and ATTCUBL XORed; 4 = inclusive OR */
+		v = 4;
+		break;
+	case 18:	/* DECPFF */
+	case 19:	/* DECPFX */
+		/* Not supported */
+		v = 4;
+		break;
+	case 25:	/* DECTCEM */
+		v = !(s->mode & MODE_CURSOR) + 1;
+		break;
+	case 1000:	/* XT_MSE_X11 */
+		v = !(s->mode & MODE_MOUSE_STANDARD) + 1;
+		break;
+	case 1001:	/* XT_MSE_HL */
+		/* Not supported */
+		v = 4;
+		break;
+	case 1002:	/* XT_MSE_BTN */
+		v = !(s->mode & MODE_MOUSE_BUTTON) + 1;
+		break;
+	case 1003:	/* XT_MSE_ALL */
+		v = !(s->mode & MODE_MOUSE_ALL) + 1;
+		break;
+	case 1004:	/* XT_MSE_WIN - focus reporting */
+		v = !(s->mode & MODE_FOCUSON) + 1;
+		break;
+	case 1005:	/* XT_MSE_UTF - urxvt mouse */
+		v = !(s->mode & MODE_MOUSE_UTF8) + 1;
+		break;
+	case 1006:	/* XT_MSE_SGR - SGR mouse */
+		v = !(s->mode & MODE_MOUSE_SGR) + 1;
+		break;
+	case 47:	/* XT_ALTSCRN */
+	case 1047:	/* XT_ALTS_47 */
+	case 1049:	/* XT_EXTSCRN */
+		v = !s->saved_grid + 1;
+		break;
+	case 2004:	/* RL_BRACKET - bracketed paste */
+		v = !(s->mode & MODE_BRACKETPASTE) + 1;
+		break;
+	case 2031:
+		v = !(s->mode & MODE_THEME_UPDATES) + 1;
+		break;
+	default:
+		log_debug("%s: unknown %d", __func__, m);
+		v = 0;
+		break;
+	}
+	log_debug("%s: reporting %d for mode %d", __func__, v, m);
+	input_reply(ictx, "\033[?%d;%d$y", m, v);
 }
 
 /* Handle CSI window operations. */
