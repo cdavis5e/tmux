@@ -3539,6 +3539,14 @@ void	log_close(void);
 void printflike(1, 2) log_debug(const char *, ...);
 __dead void printflike(1, 2) fatal(const char *, ...);
 __dead void printflike(1, 2) fatalx(const char *, ...);
+#ifdef NDEBUG
+#define assertx(e) ((void)0)
+#else
+#define assertx(e) \
+    ((e) ? ((void)0) : \
+    fatalx("assertion \"%s\" failed at %s:%d in %s", #e, __FILE__, __LINE__, \
+        __func__))
+#endif
 
 /* menu.c */
 #define MENU_NOMOUSE 0x1
