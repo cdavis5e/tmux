@@ -130,6 +130,7 @@ struct input_transition;
 static int	input_split(struct input_ctx *);
 static int	input_get(struct input_ctx *, u_int, int, int);
 static void printflike(2, 3) input_reply(struct input_ctx *, const char *, ...);
+static void	input_reply_decrpss_sgr(struct input_ctx *);
 static void	input_set_state(struct input_ctx *,
 		    const struct input_transition *);
 static void	input_reset_cell(struct input_ctx *);
@@ -177,6 +178,7 @@ static void	input_csi_dispatch_sgr_256(struct input_ctx *, int, u_int *);
 static void	input_csi_dispatch_sgr_rgb(struct input_ctx *, int, u_int *);
 static void	input_csi_dispatch_sgr(struct input_ctx *);
 static int	input_dcs_dispatch(struct input_ctx *);
+static void	input_dcs_dispatch_decrqss(struct input_ctx *);
 static int	input_top_bit_set(struct input_ctx *);
 static int	input_end_bel(struct input_ctx *);
 
@@ -320,6 +322,20 @@ static const struct input_table_entry input_csi_table[] = {
 	{ 'u', "",   INPUT_CSI_RCP }
 };
 
+/* Device Control (DCS) commands. */
+enum input_dcs_type {
+	INPUT_DCS_DECRQSS,
+	INPUT_DCS_SIXEL
+};
+
+/* Device Control (DCS) command table. */
+static const struct input_table_entry input_dcs_table[] = {
+#ifdef ENABLE_SIXEL
+	{ 'q', "",  INPUT_DCS_SIXEL },
+#endif
+	{ 'q', "$", INPUT_DCS_DECRQSS }
+};
+
 /* Input transition. */
 struct input_transition {
 	int				first;
@@ -357,6 +373,9 @@ static const struct input_transition input_state_dcs_intermediate_table[];
 static const struct input_transition input_state_dcs_handler_table[];
 static const struct input_transition input_state_dcs_escape_table[];
 static const struct input_transition input_state_dcs_ignore_table[];
+static const struct input_transition input_state_decrqss_enter_table[];
+static const struct input_transition input_state_decrqss_intermediate_table[];
+static const struct input_transition input_state_decrqss_ignore_table[];
 static const struct input_transition input_state_osc_string_table[];
 static const struct input_transition input_state_apc_string_table[];
 static const struct input_transition input_state_rename_string_table[];
@@ -451,6 +470,27 @@ static const struct input_state input_state_dcs_ignore = {
 	"dcs_ignore",
 	NULL, NULL,
 	input_state_dcs_ignore_table
+};
+
+/* decrqss_enter state definition. */
+static const struct input_state input_state_decrqss_enter = {
+	"decrqss_enter",
+	input_clear, NULL,
+	input_state_decrqss_enter_table
+};
+
+/* decrqss_intermediate state definition. */
+static const struct input_state input_state_decrqss_intermediate = {
+	"decrqss_intermediate",
+	NULL, NULL,
+	input_state_decrqss_intermediate_table
+};
+
+/* decrqss_ignore state definition. */
+static const struct input_state input_state_decrqss_ignore = {
+	"decrqss_ignore",
+	NULL, NULL,
+	input_state_decrqss_ignore_table
 };
 
 /* osc_string state definition. */
@@ -682,6 +722,46 @@ static const struct input_transition input_state_dcs_ignore_table[] = {
 	{ 0x19, 0x19, NULL,	    NULL },
 	{ 0x1c, 0x1f, NULL,	    NULL },
 	{ 0x20, 0xff, NULL,	    NULL },
+
+	{ -1, -1, NULL, NULL }
+};
+
+/* decrqss_enter state table. */
+static const struct input_transition input_state_decrqss_enter_table[] = {
+	{ 0x00, 0x17, NULL,		  NULL },
+	{ 0x18, 0x18, NULL,		  &input_state_decrqss_ignore },
+	{ 0x19, 0x19, NULL,		  NULL },
+	{ 0x1a, 0x1b, NULL,		  &input_state_decrqss_ignore },
+	{ 0x1c, 0x1f, NULL,		  NULL },
+	{ 0x20, 0x2f, input_intermediate, &input_state_decrqss_intermediate },
+	{ 0x30, 0x3b, NULL,		  &input_state_decrqss_ignore },
+	{ 0x3c, 0x3f, input_intermediate, &input_state_decrqss_intermediate },
+	{ 0x40, 0x7e, input_input,	  &input_state_decrqss_ignore },
+	{ 0x7f, 0xff, NULL,		  NULL },
+
+	{ -1, -1, NULL, NULL }
+};
+
+/* decrqss_intermediate state table. */
+static const struct input_transition
+input_state_decrqss_intermediate_table[] = {
+	{ 0x00, 0x17, NULL,		  NULL },
+	{ 0x18, 0x18, NULL,		  &input_state_decrqss_ignore },
+	{ 0x19, 0x19, NULL,		  NULL },
+	{ 0x1a, 0x1b, NULL,		  &input_state_decrqss_ignore },
+	{ 0x1c, 0x1f, NULL,		  NULL },
+	{ 0x20, 0x2f, input_intermediate, NULL },
+	{ 0x30, 0x3f, NULL,		  &input_state_decrqss_ignore },
+	{ 0x40, 0x7e, input_input,	  &input_state_decrqss_ignore },
+	{ 0x7f, 0xff, NULL,		  NULL },
+
+	{ -1, -1, NULL, NULL }
+};
+
+/* decrqss_ignore state table. */
+static const struct input_transition input_state_decrqss_ignore_table[] = {
+	{ 0x00, 0x7e, NULL, NULL },
+	{ 0x7f, 0xff, NULL, NULL },
 
 	{ -1, -1, NULL, NULL }
 };
@@ -2542,88 +2622,23 @@ input_enter_dcs(struct input_ctx *ictx)
 	ictx->flags &= ~INPUT_LAST;
 }
 
-/* Handle DECRQSS query. */
-static int
-input_handle_decrqss(struct input_ctx *ictx)
-{
-	struct window_pane	*wp = ictx->wp;
-	struct options		*oo;
-	struct screen_write_ctx	*sctx = &ictx->ctx;
-	u_char			*buf = ictx->input_buf;
-	size_t			 len = ictx->input_len;
-	struct screen		*s = sctx->s;
-	int			 ps, opt_ps, blinking;
-
-	if (len < 3 || buf[1] != ' ' || buf[2] != 'q')
-		goto not_recognized;
-
-	/*
-	 * Cursor style query: DCS $ q SP q
-	 * Reply: DCS 1 $ r SP q <Ps> SP q ST
-	 */
-	if (s->cstyle == SCREEN_CURSOR_BLOCK ||
-	    s->cstyle == SCREEN_CURSOR_UNDERLINE ||
-	    s->cstyle == SCREEN_CURSOR_BAR) {
-		blinking = (s->mode & MODE_CURSOR_BLINKING) != 0;
-		switch (s->cstyle) {
-		case SCREEN_CURSOR_BLOCK:
-			ps = blinking ? 1 : 2;
-			break;
-		case SCREEN_CURSOR_UNDERLINE:
-			ps = blinking ? 3 : 4;
-			break;
-		case SCREEN_CURSOR_BAR:
-			ps = blinking ? 5 : 6;
-			break;
-		default:
-			ps = 0;
-			break;
-		}
-	} else {
-		/*
-		 * No explicit runtime style: fall back to the configured
-		 * cursor-style option (integer Ps 0..6). Pane options inherit.
-		 */
-		if (wp != NULL)
-			oo = wp->options;
-		else
-			oo = global_options;
-		opt_ps = options_get_number(oo, "cursor-style");
-
-		/* Sanity clamp: valid Ps are 0..6 per DECSCUSR. */
-		if (opt_ps < 0 || opt_ps > 6)
-			opt_ps = 0;
-		ps = opt_ps;
-	}
-
-	log_debug("%s: DECRQSS cursor -> Ps=%d (cstyle=%d mode=%#x)", __func__,
-	    ps, s->cstyle, s->mode);
-
-	input_reply(ictx, "\033P1$r q%d q\033\\", ps);
-	return (0);
-
-not_recognized:
-	/* Unrecognized DECRQSS: send DCS 0 $ r Pt ST. */
-	input_reply(ictx, "\033P0$r\033\\");
-	return (0);
-}
-
 /* DCS terminator (ST) received. */
 static int
 input_dcs_dispatch(struct input_ctx *ictx)
 {
-	struct window_pane	*wp = ictx->wp;
-	struct options		*oo;
-	struct screen_write_ctx	*sctx = &ictx->ctx;
-	u_char			*buf = ictx->input_buf;
-	size_t			 len = ictx->input_len;
-	const char		 prefix[] = "tmux;";
-	const u_int		 prefixlen = (sizeof prefix) - 1;
-	long long		 allow_passthrough = 0;
+	struct window_pane		*wp = ictx->wp;
+	struct options			*oo;
+	struct screen_write_ctx		*sctx = &ictx->ctx;
+	struct input_table_entry	*entry;
+	u_char				*buf = ictx->input_buf;
+	size_t				 len = ictx->input_len;
+	const char			 prefix[] = "tmux;";
+	const u_int			 prefixlen = (sizeof prefix) - 1;
+	long long			 allow_passthrough = 0;
 #ifdef ENABLE_SIXEL
-	struct window		*w;
-	struct sixel_image	*si;
-	int			 p2;
+	struct window			*w;
+	struct sixel_image		*si;
+	int				 p2;
 #endif
 
 	if (wp == NULL)
@@ -2635,9 +2650,36 @@ input_dcs_dispatch(struct input_ctx *ictx)
 		return (0);
 	}
 
+	log_debug("%s: \"%s\" \"%s\" \"%s\"", __func__, buf, ictx->interm_buf,
+	    ictx->param_buf);
+
+	allow_passthrough = options_get_number(oo, "allow-passthrough");
+	if (allow_passthrough && len >= prefixlen &&
+	    strncmp(buf, prefix, prefixlen) == 0) {
+		screen_write_rawstring(sctx, buf + prefixlen, len - prefixlen,
+		    allow_passthrough == 2);
+		return (0);
+	}
+
+	if (input_split(ictx) != 0)
+		return (0);
+	ictx->ch = buf[0];
+
+	entry = bsearch(ictx, input_dcs_table, nitems(input_dcs_table),
+	    sizeof input_dcs_table[0], input_table_compare);
+	if (entry == NULL) {
+		log_debug("%s: unknown \"%s%c\"", __func__, ictx->interm_buf,
+		    *buf);
+		return (0);
+	}
+
+	switch (entry->type) {
+	case INPUT_DCS_DECRQSS:
+		input_dcs_dispatch_decrqss(ictx);
+		break;
 #ifdef ENABLE_SIXEL
-	w = wp->window;
-	if (buf[0] == 'q' && ictx->interm_len == 0) {
+	case INPUT_DCS_SIXEL:
+		w = wp->window;
 		if (input_split(ictx) != 0)
 			return (0);
 		p2 = input_get(ictx, 1, 0, 0);
@@ -2646,33 +2688,230 @@ input_dcs_dispatch(struct input_ctx *ictx)
 		si = sixel_parse(buf, len, p2, w->xpixel, w->ypixel);
 		if (si != NULL)
 			screen_write_sixelimage(sctx, si, ictx->cell.cell.bg);
-	}
+		break;
 #endif
-
-	/* DCS sequences with intermediate byte '$' (includes DECRQSS). */
-	if (ictx->interm_len == 1 && ictx->interm_buf[0] == '$') {
-		/* DECRQSS is DCS $ q Pt ST. */
-		if (len >= 1 && buf[0] == 'q')
-			return (input_handle_decrqss(ictx));
-
-		/*
-		 * Not DECRQSS. DCS '$' is currently only used by DECRQSS, but
-		 * leave other '$' DCS (if any appear in future) to existing
-		 * handlers.
-		 */
-	}
-
-	allow_passthrough = options_get_number(oo, "allow-passthrough");
-	if (!allow_passthrough)
-		return (0);
-	log_debug("%s: \"%s\"", __func__, buf);
-
-	if (len >= prefixlen && strncmp(buf, prefix, prefixlen) == 0) {
-		screen_write_rawstring(sctx, buf + prefixlen, len - prefixlen,
-		    allow_passthrough == 2);
 	}
 
 	return (0);
+}
+
+/* Handle a DCS DECRQSS request. */
+static void
+input_dcs_dispatch_decrqss(struct input_ctx *ictx)
+{
+	u_char				*buf = ictx->input_buf;
+	size_t				 len = ictx->input_len;
+	struct window_pane		*wp = ictx->wp;
+	struct options			*oo;
+	struct screen			*s = ictx->ctx.s;
+	struct input_table_entry	*entry;
+	char				*seq;
+	int				 style;
+	const struct input_state	*oldstate;
+
+	/*
+	 * Parse the parameter string like it's a CSI sequence, except that
+	 * we won't execute the corresponding terminal function and we don't
+	 * accept any parameters.
+	 */
+	oldstate = ictx->state;
+	ictx->state = &input_state_decrqss_enter;
+	/* Operate on a copy because input_clear() destroys the buffers. */
+	seq = xstrndup(buf + 1, len - 1);
+	input_clear(ictx);
+	input_parse(ictx, seq, len - 1);
+	entry = bsearch(ictx, input_csi_table, nitems(input_csi_table),
+	    sizeof input_csi_table[0], input_table_compare);
+	free(seq);
+	ictx->state = oldstate;
+	if (ictx->state->enter != NULL)
+		ictx->state->enter(ictx);
+
+	if (entry == NULL) {
+		log_debug("%s: unknown CSI \"%s%c\"", __func__, ictx->interm_buf,
+		    ictx->ch);
+		input_reply(ictx, "\033P0$r\033\\");
+		return;
+	}
+
+	log_debug("%s: '%c' \"%s\"", __func__, ictx->ch, ictx->interm_buf);
+
+	switch (entry->type) {
+	case INPUT_CSI_DECSCUSR:
+		/*
+		 * Cursor style query: DCS $ q SP q ST
+		 * Reply: DCS 1 $ r <Ps> SP q ST
+		 */
+		style = s->cstyle;
+		if (style > 0 && style <= SCREEN_CURSOR_BAR)
+			style = style * 2 - !!(s->mode & MODE_CURSOR_BLINKING);
+		else {
+			/*
+			 * No explicit runtime style: fall back to the
+			 * configured cursor-style option (integer Ps 0..6).
+			 * Pane options inherit.
+			 */
+			if (wp != NULL)
+				oo = wp->options;
+			else
+				oo = global_options;
+			style = options_get_number(oo, "cursor-style");
+
+			/* Sanity clamp: valid Ps are 0..6 per DECSCUSR. */
+			if (style < 0 || style > 6)
+				style = 0;
+		}
+		log_debug("%s: DECSCUSR style = %d", __func__, style);
+		input_reply(ictx, "\033P1$r%d q\033\\", style);
+		break;
+	case INPUT_CSI_DECSTBM:
+		/*
+		 * Top/bottom margin query: DCS $ q r ST
+		 * Reply: DCS 1 $ r <Ps> ; <Ps> r ST
+		 */
+		log_debug("%s: DECSTBM %d-%d", __func__, s->rupper, s->rlower);
+		input_reply(ictx, "\033P1$r%d;%dr\033\\",
+		    s->rupper + 1, s->rlower + 1);
+		break;
+	case INPUT_CSI_SGR:
+		/*
+		 * Graphic rendition query: DCS $ q m ST
+		 * Reply: DCS 1 $ r 0 [; <Ps> ...] m ST
+		 */
+		input_reply_decrpss_sgr(ictx);
+		break;
+	default:
+		log_debug("%s: unhandled CSI \"%s%c\"", __func__,
+		    ictx->interm_buf, ictx->ch);
+		input_reply(ictx, "\033P0$r\033\\");
+		break;
+	}
+}
+
+/* Reply to DECRQSS for SGR with DECRPSS with SGR. */
+static void
+input_reply_decrpss_sgr(struct input_ctx *ictx)
+{
+	struct bufferevent	*bev = ictx->event;
+	struct grid_cell	*gc = &ictx->cell.cell;
+	size_t			 i, n = 0, len;
+	int			 mods[10];
+	char 			*tmp;
+	u_char			 r, g, b;
+
+	if (bev == NULL)
+		return;
+
+	if (gc->attr & GRID_ATTR_BRIGHT)
+		mods[n++] = 1;
+	if (gc->attr & GRID_ATTR_DIM)
+		mods[n++] = 2;
+	if (gc->attr & GRID_ATTR_ITALICS)
+		mods[n++] = 3;
+	switch (gc->attr & GRID_ATTR_ALL_UNDERSCORE) {
+	case 0:
+		break;
+	case GRID_ATTR_UNDERSCORE:
+		mods[n++] = 4;
+		mods[n++] = 1;
+		break;
+	case GRID_ATTR_UNDERSCORE_2:
+		mods[n++] = 21;
+		break;
+	case GRID_ATTR_UNDERSCORE_3:
+		mods[n++] = 4;
+		mods[n++] = 3;
+		break;
+	case GRID_ATTR_UNDERSCORE_4:
+		mods[n++] = 4;
+		mods[n++] = 4;
+		break;
+	case GRID_ATTR_UNDERSCORE_5:
+		mods[n++] = 4;
+		mods[n++] = 5;
+		break;
+	default:
+		fatalx("unhandled underscore type in DECRPSS response");
+	}
+	if (gc->attr & GRID_ATTR_BLINK)
+		mods[n++] = 5;
+	if (gc->attr & GRID_ATTR_REVERSE)
+		mods[n++] = 7;
+	if (gc->attr & GRID_ATTR_HIDDEN)
+		mods[n++] = 8;
+	if (gc->attr & GRID_ATTR_STRIKETHROUGH)
+		mods[n++] = 9;
+	if (gc->attr & GRID_ATTR_OVERLINE)
+		mods[n++] = 53;
+	assertx(n <= 10);
+	bufferevent_write(bev, "\033P1$r0", 6);	/* DECRPSS, reset all */
+	for (i = 0; i < n; ++i) {
+		if (mods[i] == 4) {
+			len = xasprintf(&tmp, ";%d:%d", mods[i], mods[i+1]);
+			++i;
+		} else
+			len = xasprintf(&tmp, ";%d", mods[i]);
+		log_debug("%s: SGR attr %s", __func__, tmp+1);
+		bufferevent_write(bev, tmp, len);
+		free(tmp);
+	}
+	if (!COLOUR_DEFAULT(gc->fg)) {
+		if (gc->fg & COLOUR_FLAG_RGB) {
+			colour_split_rgb(gc->fg, &r, &g, &b);
+			len = xasprintf(&tmp, ";38:2:0:%hhu:%hhu:%hhu",
+			    r, g, b);
+		} else if (gc->fg & COLOUR_FLAG_256) {
+			len = xasprintf(&tmp, ";38:5:%d",
+			    gc->fg & ~COLOUR_FLAG_256);
+		} else {
+			int c = gc->fg;
+			if (c <= 8)
+				c += 30;
+			else
+				assertx(c >= 90 && c <= 97);
+			len = xasprintf(&tmp, ";%d", c);
+		}
+		log_debug("%s: SGR fg %s", __func__, tmp+1);
+		bufferevent_write(bev, tmp, len);
+		free(tmp);
+	}
+	if (!COLOUR_DEFAULT(gc->bg)) {
+		if (gc->bg & COLOUR_FLAG_RGB) {
+			colour_split_rgb(gc->bg, &r, &g, &b);
+			len = xasprintf(&tmp, ";48:2:0:%hhu:%hhu:%hhu",
+			    r, g, b);
+		} else if (gc->bg & COLOUR_FLAG_256) {
+			len = xasprintf(&tmp, ";48:5:%d",
+			    gc->bg & ~COLOUR_FLAG_256);
+		} else {
+			int c = gc->bg;
+			if (c < 8)
+				c += 40;
+			else {
+				assertx(c >= 90 && c <= 97);
+				c += 10;
+			}
+			len = xasprintf(&tmp, ";%d", c);
+		}
+		log_debug("%s: SGR bg %s", __func__, tmp+1);
+		bufferevent_write(bev, tmp, len);
+		free(tmp);
+	}
+	if (!COLOUR_DEFAULT(gc->us)) {
+		assertx(gc->us & (COLOUR_FLAG_RGB|COLOUR_FLAG_256));
+		if (gc->us & COLOUR_FLAG_RGB) {
+			colour_split_rgb(gc->us, &r, &g, &b);
+			len = xasprintf(&tmp, ";58:2:0:%hhu:%hhu:%hhu",
+			    r, g, b);
+		} else if (gc->us & COLOUR_FLAG_256) {
+			len = xasprintf(&tmp, ";58:5:%d",
+			    gc->us & ~COLOUR_FLAG_256);
+		}
+		log_debug("%s: SGR us %s", __func__, tmp+1);
+		bufferevent_write(bev, tmp, len);
+		free(tmp);
+	}
+	bufferevent_write(bev, "m\033\\", 3);	/* SGR, ST */
 }
 
 /* OSC string started. */
