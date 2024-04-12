@@ -62,6 +62,8 @@ static const struct tty_term_code_entry tty_term_codes[] = {
 	[TTYC_BCE] = { TTYCODE_FLAG, "bce" },
 	[TTYC_BEL] = { TTYCODE_STRING, "bel" },
 	[TTYC_BIDI] = { TTYCODE_STRING, "Bidi" },
+	[TTYC_BI] = { TTYCODE_STRING, "Bi" },
+	[TTYC_BIN] = { TTYCODE_STRING, "Bin" },
 	[TTYC_BLINK] = { TTYCODE_STRING, "blink" },
 	[TTYC_BOLD] = { TTYCODE_STRING, "bold" },
 	[TTYC_CIVIS] = { TTYCODE_STRING, "civis" },
@@ -83,6 +85,8 @@ static const struct tty_term_code_entry tty_term_codes[] = {
 	[TTYC_CUU1] = { TTYCODE_STRING, "cuu1" },
 	[TTYC_CUU] = { TTYCODE_STRING, "cuu" },
 	[TTYC_CVVIS] = { TTYCODE_STRING, "cvvis" },
+	[TTYC_DC1] = { TTYCODE_STRING, "Dc1" },
+	[TTYC_DC] = { TTYCODE_STRING, "Dc" },
 	[TTYC_DCH1] = { TTYCODE_STRING, "dch1" },
 	[TTYC_DCH] = { TTYCODE_STRING, "dch" },
 	[TTYC_DIM] = { TTYCODE_STRING, "dim" },
@@ -102,10 +106,14 @@ static const struct tty_term_code_entry tty_term_codes[] = {
 	[TTYC_ENEKS] = { TTYCODE_STRING, "Eneks" },
 	[TTYC_ENFCS] = { TTYCODE_STRING, "Enfcs" },
 	[TTYC_ENMG] = { TTYCODE_STRING, "Enmg" },
+	[TTYC_FI] = { TTYCODE_STRING, "Fi" },
+	[TTYC_FIN] = { TTYCODE_STRING, "Fin" },
 	[TTYC_FSL] = { TTYCODE_STRING, "fsl" },
 	[TTYC_HLS] = { TTYCODE_STRING, "Hls" },
 	[TTYC_HOME] = { TTYCODE_STRING, "home" },
 	[TTYC_HPA] = { TTYCODE_STRING, "hpa" },
+	[TTYC_IC1] = { TTYCODE_STRING, "Ic1" },
+	[TTYC_IC] = { TTYCODE_STRING, "Ic" },
 	[TTYC_ICH1] = { TTYCODE_STRING, "ich1" },
 	[TTYC_ICH] = { TTYCODE_STRING, "ich" },
 	[TTYC_IL1] = { TTYCODE_STRING, "il1" },
@@ -478,6 +486,16 @@ tty_term_apply_overrides(struct tty_term *term)
 	else
 		term->flags &= ~TERM_DECSLRM;
 	log_debug("DECSLRM flag is %d", !!(term->flags & TERM_DECSLRM));
+
+	/*
+	 * Set or clear the HSCROLL flag if the terminal has the Fin/Bin
+	 * capabilities.
+	 */
+	if (tty_term_has(term, TTYC_FIN) && tty_term_has(term, TTYC_BIN))
+		term->flags |= TERM_HSCROLL;
+	else
+		term->flags &= ~TERM_HSCROLL;
+	log_debug("HSCROLL flag is %d", !!(term->flags & TERM_HSCROLL));
 
 	/*
 	 * Set or clear the DECFRA flag if the terminal has the rectangle

@@ -253,12 +253,31 @@ static const char *const tty_feature_margins_capabilities[] = {
 	"Dsmg=\\E[?69l",
 	"Clmg=\\E[s",
 	"Cmg=\\E[%i%p1%d;%p2%ds",
+	"Bi=\\E6",
+	"Fi=\\E9",
+	/* note: no Fin or Bin, because DEC terminals didn't support SL or SR */
+	"Ic=\\E[%p1%d'}",
+	"Ic1=\\E['}",
+	"Dc=\\E[%p1%d'~",
+	"Dc1=\\E['~",
 	NULL
 };
 static const struct tty_feature tty_feature_margins = {
 	"margins",
 	tty_feature_margins_capabilities,
 	TERM_DECSLRM
+};
+
+/* Terminal supports ANSI standard horizontal scrolling controls. */
+static const char *const tty_feature_hscroll_capabilities[] = {
+	"Fin=\\E[%p1%d @",
+	"Bin=\\E[%p1%d A",
+	NULL
+};
+static const struct tty_feature tty_feature_hscroll = {
+	"hscroll",
+	tty_feature_hscroll_capabilities,
+	TERM_HSCROLL
 };
 
 /* Terminal supports DECFRA rectangle fill. */
@@ -367,6 +386,7 @@ static const struct tty_feature *const tty_features[] = {
 	&tty_feature_cstyle,
 	&tty_feature_extkeys,
 	&tty_feature_focus,
+	&tty_feature_hscroll,
 	&tty_feature_ignorefkeys,
 	&tty_feature_margins,
 	&tty_feature_mouse,
@@ -475,18 +495,18 @@ tty_default_features(int *feat, const char *name, u_int version)
 	"256,RGB,bpaste,clipboard,mouse,strikethrough,title"
 		{ .name = "mintty",
 		  .features = TTY_FEATURES_BASE_MODERN_XTERM
-			      ",ccolour,cstyle,extkeys,margins,overline,usstyle"
+			      ",ccolour,cstyle,extkeys,hscroll,margins,overline,usstyle"
 		},
 		{ .name = "tmux",
 		  .features = TTY_FEATURES_BASE_MODERN_XTERM
-			      ",ccolour,cstyle,focus,overline,usstyle,hyperlinks"
+			      ",ccolour,cstyle,focus,hscroll,margins,overline,usstyle,hyperlinks"
 		},
 		{ .name = "rxvt-unicode",
 		  .features = "256,bpaste,ccolour,cstyle,mouse,title,ignorefkeys"
 		},
 		{ .name = "iTerm2",
 		  .features = TTY_FEATURES_BASE_MODERN_XTERM
-			      ",cstyle,extkeys,margins,usstyle,sync,osc7,hyperlinks"
+			      ",cstyle,extkeys,hscroll,margins,usstyle,sync,osc7,hyperlinks"
 		},
 		{ .name = "foot",
 		  .features = TTY_FEATURES_BASE_MODERN_XTERM
@@ -499,7 +519,7 @@ tty_default_features(int *feat, const char *name, u_int version)
 		   * secondary DA shows VT420.
 		   */
 		  .features = TTY_FEATURES_BASE_MODERN_XTERM
-			      ",ccolour,cstyle,extkeys,focus"
+			      ",ccolour,cstyle,extkeys,focus,hscroll"
 		}
 	};
 	u_int	i;

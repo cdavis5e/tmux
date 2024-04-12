@@ -4322,6 +4322,9 @@ Allows setting the cursor style.
 Supports extended keys.
 .It focus
 Supports focus reporting.
+.It hscroll
+Supports horizontal scrolling using the standard ECMA-48 control sequences, SL
+and SR.
 .It hyperlinks
 Supports OSC 8 hyperlinks.
 .It ignorefkeys
@@ -6181,6 +6184,8 @@ The following variables are available, where appropriate:
 .It Li "pid" Ta "" Ta "Server PID"
 .It Li "rectangle_toggle" Ta "" Ta "1 if rectangle selection is activated"
 .It Li "scroll_position" Ta "" Ta "Scroll position in copy mode"
+.It Li "scroll_margin_left" Ta "" Ta "Left margin of scroll region in pane"
+.It Li "scroll_margin_right" Ta "" Ta "Right margin of scroll region in pane"
 .It Li "scroll_region_lower" Ta "" Ta "Bottom of scroll region in pane"
 .It Li "scroll_region_upper" Ta "" Ta "Top of scroll region in pane"
 .It Li "search_count" Ta "" Ta "Count of search results"
@@ -7475,11 +7480,26 @@ option should be used.
 An existing extension that tells
 .Nm
 the terminal supports default colours.
+.It Em \&Bi , \&Fi
+Move the cursor left or right; scroll the display at the left or right margin,
+respectively (DECBI and DECFI).
+These are set automatically if the terminal reports it is
+.Em VT420
+compatible.
+.It Em \&Bin , \&Fin
+Scroll the display right or left, respectively, a specified number of columns
+without moving the cursor.
+These correspond to the SL and SR commands specified in ECMA-48.
+These are
+.Em not
+set automatically even if the terminal reports it is
+.Em VT420
+compatible.
 .It Em \&Bidi
 Tell
 .Nm
 that the terminal supports the VTE bidirectional text extensions.
-.It Em \&Cs , Cr
+.It Em \&Cs , \&Cr
 Set the cursor colour.
 The first takes a single string argument and is used to set the colour;
 the second takes no arguments and restores the default cursor colour.
@@ -7499,6 +7519,15 @@ Set, clear, disable or enable DECSLRM margins.
 These are set automatically if the terminal reports it is
 .Em VT420
 compatible.
+.It Em \&Dc , \&Dc1
+Delete columns at the cursor, forcing columns to the right to scroll left;
+blank columns are inserted from the right margin in place of the scrolled
+columns (DECDC).
+The first takes an argument specifying the number of columns to delete; the
+second takes no argument and always deletes one column.
+These are set automatically if the terminal reports it is
+.Em VT420
+compatible.
 .It Em \&Dsbp , \&Enbp
 Disable and enable bracketed paste.
 These are set automatically if the
@@ -7513,6 +7542,14 @@ These are set automatically if the
 capability is present.
 .It Em \&Hls
 Set or clear a hyperlink annotation.
+.It Em \&Ic , \&Ic1
+Insert blank columns at the cursor, forcing columns to the right to scroll
+right (DECIC).
+The first takes an argument specifying the number of columns to insert; the
+second takes no argument and always inserts one column.
+These are set automatically if the terminal reports it is
+.Em VT420
+compatible.
 .It Em \&Nobr
 Tell
 .Nm

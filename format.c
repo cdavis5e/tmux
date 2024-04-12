@@ -2275,6 +2275,24 @@ format_cb_pane_width(struct format_tree *ft)
 	return (NULL);
 }
 
+/* Callback for scroll_margin_left. */
+static void *
+format_cb_scroll_margin_left(struct format_tree *ft)
+{
+	if (ft->wp != NULL)
+		return (format_printf("%u", ft->wp->base.rleft));
+	return (NULL);
+}
+
+/* Callback for scroll_margin_right. */
+static void *
+format_cb_scroll_margin_right(struct format_tree *ft)
+{
+	if (ft->wp != NULL)
+		return (format_printf("%u", ft->wp->base.rright));
+	return (NULL);
+}
+
 /* Callback for scroll_region_lower. */
 static void *
 format_cb_scroll_region_lower(struct format_tree *ft)
@@ -3328,6 +3346,12 @@ static const struct format_table_entry format_table[] = {
 	},
 	{ "pid", FORMAT_TABLE_STRING,
 	  format_cb_pid
+	},
+	{ "scroll_margin_left", FORMAT_TABLE_STRING,
+	  format_cb_scroll_margin_left
+	},
+	{ "scroll_margin_right", FORMAT_TABLE_STRING,
+	  format_cb_scroll_margin_right
 	},
 	{ "scroll_region_lower", FORMAT_TABLE_STRING,
 	  format_cb_scroll_region_lower

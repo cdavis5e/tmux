@@ -393,7 +393,9 @@ enum tty_code_code {
 	TTYC_AX,
 	TTYC_BCE,
 	TTYC_BEL,
+	TTYC_BI,
 	TTYC_BIDI,
+	TTYC_BIN,
 	TTYC_BLINK,
 	TTYC_BOLD,
 	TTYC_CIVIS,
@@ -415,6 +417,8 @@ enum tty_code_code {
 	TTYC_CUU,
 	TTYC_CUU1,
 	TTYC_CVVIS,
+	TTYC_DC,
+	TTYC_DC1,
 	TTYC_DCH,
 	TTYC_DCH1,
 	TTYC_DIM,
@@ -434,10 +438,14 @@ enum tty_code_code {
 	TTYC_ENEKS,
 	TTYC_ENFCS,
 	TTYC_ENMG,
+	TTYC_FI,
+	TTYC_FIN,
 	TTYC_FSL,
 	TTYC_HLS,
 	TTYC_HOME,
 	TTYC_HPA,
+	TTYC_IC,
+	TTYC_IC1,
 	TTYC_ICH,
 	TTYC_ICH1,
 	TTYC_IL,
@@ -650,6 +658,7 @@ enum tty_code_code {
 #define MODE_CURSOR_BLINKING_SET 0x20000
 #define MODE_KEYS_EXTENDED_2 0x40000
 #define MODE_THEME_UPDATES 0x80000
+#define MODE_LR_MARGINS 0x100000
 
 #define ALL_MODES 0xffffff
 #define ALL_MOUSE_MODES (MODE_MOUSE_STANDARD|MODE_MOUSE_BUTTON|MODE_MOUSE_ALL)
@@ -967,6 +976,8 @@ struct screen {
 
 	u_int				 rupper;  /* scroll region top */
 	u_int				 rlower;  /* scroll region bottom */
+	u_int				 rleft;   /* scroll region left */
+	u_int				 rright;  /* scroll region right */
 
 	int				 mode;
 	int				 default_mode;
@@ -1510,6 +1521,7 @@ struct tty_term {
 #define TERM_RGBCOLOURS 0x10
 #define TERM_VT100LIKE 0x20
 #define TERM_SIXEL 0x40
+#define TERM_HSCROLL 0x80
 	int		 flags;
 
 	LIST_ENTRY(tty_term) entry;
@@ -1635,6 +1647,8 @@ struct tty_ctx {
 
 	u_int			 orupper;
 	u_int			 orlower;
+	u_int			 orleft;
+	u_int			 orright;
 
 	/* Target region (usually pane) offset and size. */
 	u_int			 xoff;
@@ -2530,8 +2544,10 @@ void	tty_set_selection(struct tty *, const char *, const char *, size_t);
 void	tty_write(void (*)(struct tty *, const struct tty_ctx *),
 	    struct tty_ctx *);
 void	tty_cmd_alignmenttest(struct tty *, const struct tty_ctx *);
+void	tty_cmd_backindex(struct tty *, const struct tty_ctx *);
 void	tty_cmd_cell(struct tty *, const struct tty_ctx *);
 void	tty_cmd_cells(struct tty *, const struct tty_ctx *);
+void	tty_cmd_clearcharacter(struct tty *, const struct tty_ctx *);
 void	tty_cmd_clearendofline(struct tty *, const struct tty_ctx *);
 void	tty_cmd_clearendofscreen(struct tty *, const struct tty_ctx *);
 void	tty_cmd_clearline(struct tty *, const struct tty_ctx *);
@@ -2539,16 +2555,20 @@ void	tty_cmd_clearscreen(struct tty *, const struct tty_ctx *);
 void	tty_cmd_clearstartofline(struct tty *, const struct tty_ctx *);
 void	tty_cmd_clearstartofscreen(struct tty *, const struct tty_ctx *);
 void	tty_cmd_deletecharacter(struct tty *, const struct tty_ctx *);
-void	tty_cmd_clearcharacter(struct tty *, const struct tty_ctx *);
+void	tty_cmd_deletecolumn(struct tty *, const struct tty_ctx *);
 void	tty_cmd_deleteline(struct tty *, const struct tty_ctx *);
+void	tty_cmd_forwardindex(struct tty *, const struct tty_ctx *);
 void	tty_cmd_insertcharacter(struct tty *, const struct tty_ctx *);
+void	tty_cmd_insertcolumn(struct tty *, const struct tty_ctx *);
 void	tty_cmd_insertline(struct tty *, const struct tty_ctx *);
 void	tty_cmd_linefeed(struct tty *, const struct tty_ctx *);
+void	tty_cmd_rawstring(struct tty *, const struct tty_ctx *);
+void	tty_cmd_reverseindex(struct tty *, const struct tty_ctx *);
 void	tty_cmd_scrollup(struct tty *, const struct tty_ctx *);
 void	tty_cmd_scrolldown(struct tty *, const struct tty_ctx *);
-void	tty_cmd_reverseindex(struct tty *, const struct tty_ctx *);
+void	tty_cmd_scrollleft(struct tty *, const struct tty_ctx *);
+void	tty_cmd_scrollright(struct tty *, const struct tty_ctx *);
 void	tty_cmd_setselection(struct tty *, const struct tty_ctx *);
-void	tty_cmd_rawstring(struct tty *, const struct tty_ctx *);
 
 #ifdef ENABLE_SIXEL
 void	tty_cmd_sixelimage(struct tty *, const struct tty_ctx *);
@@ -3024,6 +3044,8 @@ void	 grid_clear(struct grid *, u_int, u_int, u_int, u_int, u_int);
 void	 grid_clear_lines(struct grid *, u_int, u_int, u_int);
 void	 grid_move_lines(struct grid *, u_int, u_int, u_int, u_int);
 void	 grid_move_cells(struct grid *, u_int, u_int, u_int, u_int, u_int);
+void	 grid_move_rect(struct grid *, u_int, u_int, u_int, u_int, u_int,
+	     u_int, u_int);
 char	*grid_string_cells(struct grid *, u_int, u_int, u_int,
 	     struct grid_cell **, int, struct screen *);
 void	 grid_duplicate_lines(struct grid *, u_int, struct grid *, u_int,
@@ -3064,16 +3086,26 @@ void	 grid_view_set_cells(struct grid *, u_int, u_int,
 	     const struct grid_cell *, const char *, size_t);
 void	 grid_view_clear_history(struct grid *, u_int);
 void	 grid_view_clear(struct grid *, u_int, u_int, u_int, u_int, u_int);
-void	 grid_view_scroll_region_up(struct grid *, u_int, u_int, u_int);
-void	 grid_view_scroll_region_down(struct grid *, u_int, u_int, u_int);
+void	 grid_view_scroll_region_up(struct grid *, u_int, u_int, u_int, u_int,
+	     u_int);
+void	 grid_view_scroll_region_down(struct grid *, u_int, u_int, u_int, u_int,
+	     u_int);
+void	 grid_view_scroll_region_left(struct grid *, u_int, u_int, u_int, u_int,
+	     u_int);
+void	 grid_view_scroll_region_right(struct grid *, u_int, u_int, u_int,
+	     u_int, u_int);
 void	 grid_view_insert_lines(struct grid *, u_int, u_int, u_int);
 void	 grid_view_insert_lines_region(struct grid *, u_int, u_int, u_int,
-	     u_int);
+	     u_int, u_int, u_int);
 void	 grid_view_delete_lines(struct grid *, u_int, u_int, u_int);
 void	 grid_view_delete_lines_region(struct grid *, u_int, u_int, u_int,
-	     u_int);
-void	 grid_view_insert_cells(struct grid *, u_int, u_int, u_int, u_int);
-void	 grid_view_delete_cells(struct grid *, u_int, u_int, u_int, u_int);
+	     u_int, u_int, u_int);
+void	 grid_view_insert_cells(struct grid *, u_int, u_int, u_int, u_int, u_int);
+void	 grid_view_delete_cells(struct grid *, u_int, u_int, u_int, u_int, u_int);
+void	 grid_view_insert_columns(struct grid *, u_int, u_int, u_int, u_int,
+	     u_int, u_int);
+void	 grid_view_delete_columns(struct grid *, u_int, u_int, u_int, u_int,
+	     u_int, u_int);
 char	*grid_view_string_cells(struct grid *, u_int, u_int, u_int);
 
 /* screen-write.c */
@@ -3125,12 +3157,19 @@ void	 screen_write_deleteline(struct screen_write_ctx *, u_int, u_int);
 void	 screen_write_clearline(struct screen_write_ctx *, u_int);
 void	 screen_write_clearendofline(struct screen_write_ctx *, u_int);
 void	 screen_write_clearstartofline(struct screen_write_ctx *, u_int);
+void	 screen_write_insertcolumn(struct screen_write_ctx *, u_int, u_int);
+void	 screen_write_deletecolumn(struct screen_write_ctx *, u_int, u_int);
 void	 screen_write_cursormove(struct screen_write_ctx *, int, int, int);
 void	 screen_write_reverseindex(struct screen_write_ctx *, u_int);
 void	 screen_write_scrollregion(struct screen_write_ctx *, u_int, u_int);
+void	 screen_write_scrollmargin(struct screen_write_ctx *, u_int, u_int);
 void	 screen_write_linefeed(struct screen_write_ctx *, int, u_int);
+void	 screen_write_backindex(struct screen_write_ctx *, u_int);
+void	 screen_write_forwardindex(struct screen_write_ctx *, u_int);
 void	 screen_write_scrollup(struct screen_write_ctx *, u_int, u_int);
 void	 screen_write_scrolldown(struct screen_write_ctx *, u_int, u_int);
+void	 screen_write_scrollleft(struct screen_write_ctx *, u_int, u_int);
+void	 screen_write_scrollright(struct screen_write_ctx *, u_int, u_int);
 void	 screen_write_carriagereturn(struct screen_write_ctx *);
 void	 screen_write_clearendofscreen(struct screen_write_ctx *, u_int);
 void	 screen_write_clearstartofscreen(struct screen_write_ctx *, u_int);

@@ -23,6 +23,10 @@
 
 #include "tmux.h"
 
+static struct screen_write_citem *screen_write_collect_trim_callback(
+		    struct screen_write_ctx *, u_int, u_int, u_int, int *,
+		    void (*)(struct screen_write_citem *, void *, void *), void *,
+		    void *);
 static struct screen_write_citem *screen_write_collect_trim(
 		    struct screen_write_ctx *, u_int, u_int, u_int, int *);
 static void	screen_write_collect_clear(struct screen_write_ctx *, u_int,
@@ -184,6 +188,8 @@ screen_write_initctx(struct screen_write_ctx *ctx, struct tty_ctx *ttyctx,
 	ttyctx->ocy = s->cy;
 	ttyctx->orlower = s->rlower;
 	ttyctx->orupper = s->rupper;
+	ttyctx->orleft = s->rleft;
+	ttyctx->orright = s->rright;
 
 	memcpy(&ttyctx->defaults, &grid_default_cell, sizeof ttyctx->defaults);
 	if (ctx->init_ctx_cb != NULL) {
@@ -324,6 +330,7 @@ screen_write_reset(struct screen_write_ctx *ctx)
 
 	screen_reset_tabs(s);
 	screen_write_scrollregion(ctx, 0, screen_size_y(s) - 1);
+	screen_write_scrollmargin(ctx, 0, screen_size_x(s) - 1);
 
 	s->mode = MODE_CURSOR|MODE_WRAP;
 
@@ -912,7 +919,7 @@ screen_write_cursorup(struct screen_write_ctx *ctx, u_int ny)
 		if (ny > cy - s->rupper)
 			ny = cy - s->rupper;
 	}
-	if (cx == screen_size_x(s))
+	if (cx == s->rright + 1)
 		cx--;
 
 	cy -= ny;
@@ -939,7 +946,7 @@ screen_write_cursordown(struct screen_write_ctx *ctx, u_int ny)
 		if (ny > s->rlower - cy)
 			ny = s->rlower - cy;
 	}
-	if (cx == screen_size_x(s))
+	if (cx == s->rright + 1)
 	    cx--;
 	else if (ny == 0)
 		return;
@@ -959,8 +966,15 @@ screen_write_cursorright(struct screen_write_ctx *ctx, u_int nx)
 	if (nx == 0)
 		nx = 1;
 
-	if (nx > screen_size_x(s) - 1 - cx)
-		nx = screen_size_x(s) - 1 - cx;
+	if (cx > s->rright) {
+		/* After margin. */
+		if (nx > screen_size_x(s) - 1 - cx)
+			nx = screen_size_x(s) - 1 - cx;
+	} else {
+		/* Before margin. */
+		if (nx > s->rright - cx)
+			nx = s->rright - cx;
+	}
 	if (nx == 0)
 		return;
 
@@ -979,8 +993,15 @@ screen_write_cursorleft(struct screen_write_ctx *ctx, u_int nx)
 	if (nx == 0)
 		nx = 1;
 
-	if (nx > cx)
-		nx = cx;
+	if (cx < s->rleft) {
+		/* Before margin. */
+		if (nx > cx)
+			nx = cx;
+	} else {
+		/* After margin. */
+		if (nx > cx - s->rleft)
+			nx = cx - s->rleft;
+	}
 	if (nx == 0)
 		return;
 
@@ -997,13 +1018,17 @@ screen_write_backspace(struct screen_write_ctx *ctx)
 	struct grid_line	*gl;
 	u_int			 cx = s->cx, cy = s->cy;
 
-	if (cx == 0) {
+	if (cx < s->rleft) {
+		if (cx == 0)
+			return;
+		cx--;
+	} else if (cx == s->rleft) {
 		if (cy == 0)
 			return;
 		gl = grid_get_line(s->grid, s->grid->hsize + cy - 1);
 		if (gl->flags & GRID_LINE_WRAPPED) {
 			cy--;
-			cx = screen_size_x(s) - 1;
+			cx = s->rright;
 		}
 	} else
 		cx--;
@@ -1037,6 +1062,8 @@ screen_write_alignmenttest(struct screen_write_ctx *ctx)
 
 	s->rupper = 0;
 	s->rlower = screen_size_y(s) - 1;
+	s->rleft = 0;
+	s->rright = screen_size_x(s) - 1;
 
 	screen_write_initctx(ctx, &ttyctx, 1);
 
@@ -1054,12 +1081,14 @@ screen_write_insertcharacter(struct screen_write_ctx *ctx, u_int nx, u_int bg)
 	if (nx == 0)
 		nx = 1;
 
-	if (nx > screen_size_x(s) - s->cx)
-		nx = screen_size_x(s) - s->cx;
-	if (nx == 0)
+	if (s->cx > s->rright || s->cx < s->rleft) {
+		/* Outside margin. */
 		return;
+	}
 
-	if (s->cx > screen_size_x(s) - 1)
+	if (nx > s->rright + 1 - s->cx)
+		nx = s->rright + 1 - s->cx;
+	if (nx == 0)
 		return;
 
 #ifdef ENABLE_SIXEL
@@ -1070,7 +1099,7 @@ screen_write_insertcharacter(struct screen_write_ctx *ctx, u_int nx, u_int bg)
 	screen_write_initctx(ctx, &ttyctx, 0);
 	ttyctx.bg = bg;
 
-	grid_view_insert_cells(s->grid, s->cx, s->cy, nx, bg);
+	grid_view_insert_cells(s->grid, s->rright, s->cx, s->cy, nx, bg);
 
 	screen_write_collect_flush(ctx, 0, __func__);
 	ttyctx.num = nx;
@@ -1087,12 +1116,14 @@ screen_write_deletecharacter(struct screen_write_ctx *ctx, u_int nx, u_int bg)
 	if (nx == 0)
 		nx = 1;
 
-	if (nx > screen_size_x(s) - s->cx)
-		nx = screen_size_x(s) - s->cx;
-	if (nx == 0)
+	if (s->cx > s->rright || s->cx < s->rleft) {
+		/* Outside margin. */
 		return;
+	}
 
-	if (s->cx > screen_size_x(s) - 1)
+	if (nx > s->rright + 1 - s->cx)
+		nx = s->rright + 1 - s->cx;
+	if (nx == 0)
 		return;
 
 #ifdef ENABLE_SIXEL
@@ -1103,7 +1134,7 @@ screen_write_deletecharacter(struct screen_write_ctx *ctx, u_int nx, u_int bg)
 	screen_write_initctx(ctx, &ttyctx, 0);
 	ttyctx.bg = bg;
 
-	grid_view_delete_cells(s->grid, s->cx, s->cy, nx, bg);
+	grid_view_delete_cells(s->grid, s->rright, s->cx, s->cy, nx, bg);
 
 	screen_write_collect_flush(ctx, 0, __func__);
 	ttyctx.num = nx;
@@ -1150,10 +1181,11 @@ screen_write_insertline(struct screen_write_ctx *ctx, u_int ny, u_int bg)
 	struct screen	*s = ctx->s;
 	struct grid	*gd = s->grid;
 	struct tty_ctx	 ttyctx;
+	u_int		 sy = screen_size_y(s), sx = screen_size_x(s);
 
-#ifdef ENABLE_SIXEL
-	u_int		 sy = screen_size_y(s);
-#endif
+	if (s->cy < s->rupper || s->cy > s->rlower ||
+	    s->cx < s->rleft || s->cx > s->rright)
+		return;
 
 	if (ny == 0)
 		ny = 1;
@@ -1163,23 +1195,6 @@ screen_write_insertline(struct screen_write_ctx *ctx, u_int ny, u_int bg)
 		ctx->wp->flags |= PANE_REDRAW;
 #endif
 
-	if (s->cy < s->rupper || s->cy > s->rlower) {
-		if (ny > screen_size_y(s) - s->cy)
-			ny = screen_size_y(s) - s->cy;
-		if (ny == 0)
-			return;
-
-		screen_write_initctx(ctx, &ttyctx, 1);
-		ttyctx.bg = bg;
-
-		grid_view_insert_lines(gd, s->cy, ny, bg);
-
-		screen_write_collect_flush(ctx, 0, __func__);
-		ttyctx.num = ny;
-		tty_write(tty_cmd_insertline, &ttyctx);
-		return;
-	}
-
 	if (ny > s->rlower + 1 - s->cy)
 		ny = s->rlower + 1 - s->cy;
 	if (ny == 0)
@@ -1188,10 +1203,11 @@ screen_write_insertline(struct screen_write_ctx *ctx, u_int ny, u_int bg)
 	screen_write_initctx(ctx, &ttyctx, 1);
 	ttyctx.bg = bg;
 
-	if (s->cy < s->rupper || s->cy > s->rlower)
+	if (s->rlower - s->rupper + 1 == sy && s->rright - s->rleft + 1 == sx)
 		grid_view_insert_lines(gd, s->cy, ny, bg);
 	else
-		grid_view_insert_lines_region(gd, s->rlower, s->cy, ny, bg);
+		grid_view_insert_lines_region(gd, s->rlower, s->cy, ny,
+		    s->rleft, s->rright, bg);
 
 	screen_write_collect_flush(ctx, 0, __func__);
 
@@ -1206,7 +1222,11 @@ screen_write_deleteline(struct screen_write_ctx *ctx, u_int ny, u_int bg)
 	struct screen	*s = ctx->s;
 	struct grid	*gd = s->grid;
 	struct tty_ctx	 ttyctx;
-	u_int		 sy = screen_size_y(s);
+	u_int		 sy = screen_size_y(s), sx = screen_size_x(s);
+
+	if (s->cy < s->rupper || s->cy > s->rlower ||
+	    s->cx < s->rleft || s->cx > s->rright)
+		return;
 
 	if (ny == 0)
 		ny = 1;
@@ -1216,23 +1236,6 @@ screen_write_deleteline(struct screen_write_ctx *ctx, u_int ny, u_int bg)
 		ctx->wp->flags |= PANE_REDRAW;
 #endif
 
-	if (s->cy < s->rupper || s->cy > s->rlower) {
-		if (ny > sy - s->cy)
-			ny = sy - s->cy;
-		if (ny == 0)
-			return;
-
-		screen_write_initctx(ctx, &ttyctx, 1);
-		ttyctx.bg = bg;
-
-		grid_view_delete_lines(gd, s->cy, ny, bg);
-
-		screen_write_collect_flush(ctx, 0, __func__);
-		ttyctx.num = ny;
-		tty_write(tty_cmd_deleteline, &ttyctx);
-		return;
-	}
-
 	if (ny > s->rlower + 1 - s->cy)
 		ny = s->rlower + 1 - s->cy;
 	if (ny == 0)
@@ -1241,10 +1244,11 @@ screen_write_deleteline(struct screen_write_ctx *ctx, u_int ny, u_int bg)
 	screen_write_initctx(ctx, &ttyctx, 1);
 	ttyctx.bg = bg;
 
-	if (s->cy < s->rupper || s->cy > s->rlower)
+	if (s->rlower - s->rupper + 1 == sy && s->rright - s->rleft + 1 == sx)
 		grid_view_delete_lines(gd, s->cy, ny, bg);
 	else
-		grid_view_delete_lines_region(gd, s->rlower, s->cy, ny, bg);
+		grid_view_delete_lines_region(gd, s->rlower, s->cy, ny,
+		    s->rleft, s->rright, bg);
 
 	screen_write_collect_flush(ctx, 0, __func__);
 	ttyctx.num = ny;
@@ -1352,6 +1356,81 @@ screen_write_clearstartofline(struct screen_write_ctx *ctx, u_int bg)
 	ctx->item = screen_write_get_citem();
 }
 
+/* Insert nx columns. */
+void
+screen_write_insertcolumn(struct screen_write_ctx *ctx, u_int nx, u_int bg)
+{
+	struct screen	*s = ctx->s;
+	struct grid	*gd = s->grid;
+	struct tty_ctx	 ttyctx;
+	u_int		 sy = screen_size_y(s), sx = screen_size_x(s);
+
+	if (s->cy < s->rupper || s->cy > s->rlower ||
+	    s->cx < s->rleft || s->cx > s->rright)
+		return;
+
+	if (nx == 0)
+		nx = 1;
+
+#ifdef ENABLE_SIXEL
+	if (image_check_area(s, s->cx, 0, sx - s->cx, sy) && ctx->wp != NULL)
+		ctx->wp->flags |= PANE_REDRAW;
+#endif
+
+	if (nx > s->rright + 1 - s->cx)
+		nx = s->rright + 1 - s->cx;
+	if (nx == 0)
+		return;
+
+	screen_write_initctx(ctx, &ttyctx, 1);
+	ttyctx.bg = bg;
+
+	grid_view_insert_columns(gd, s->rright, s->cx, nx, s->rupper, s->rlower,
+	    bg);
+
+	screen_write_collect_flush(ctx, 0, __func__);
+
+	ttyctx.num = nx;
+	tty_write(tty_cmd_insertcolumn, &ttyctx);
+}
+
+/* Delete nx columns. */
+void
+screen_write_deletecolumn(struct screen_write_ctx *ctx, u_int nx, u_int bg)
+{
+	struct screen	*s = ctx->s;
+	struct grid	*gd = s->grid;
+	struct tty_ctx	 ttyctx;
+	u_int		 sy = screen_size_y(s), sx = screen_size_x(s);
+
+	if (s->cy < s->rupper || s->cy > s->rlower ||
+	    s->cx < s->rleft || s->cx > s->rright)
+		return;
+
+	if (nx == 0)
+		nx = 1;
+
+#ifdef ENABLE_SIXEL
+	if (image_check_area(s, s->cx, 0, sx - s->cx, sy) && ctx->wp != NULL)
+		ctx->wp->flags |= PANE_REDRAW;
+#endif
+
+	if (nx > s->rright + 1 - s->cx)
+		nx = s->rright + 1 - s->cx;
+	if (nx == 0)
+		return;
+
+	screen_write_initctx(ctx, &ttyctx, 1);
+	ttyctx.bg = bg;
+
+	grid_view_delete_columns(gd, s->rright, s->cx, nx, s->rupper, s->rlower,
+	    bg);
+
+	screen_write_collect_flush(ctx, 0, __func__);
+	ttyctx.num = nx;
+	tty_write(tty_cmd_deletecolumn, &ttyctx);
+}
+
 /* Move cursor to px,py. */
 void
 screen_write_cursormove(struct screen_write_ctx *ctx, int px, int py,
@@ -1364,6 +1443,12 @@ screen_write_cursormove(struct screen_write_ctx *ctx, int px, int py,
 			py = s->rlower;
 		else
 			py += s->rupper;
+	}
+	if (origin && px != -1 && (s->mode & MODE_ORIGIN)) {
+		if ((u_int)px > s->rright - s->rleft)
+			px = s->rright;
+		else
+			px += s->rleft;
 	}
 
 	if (px != -1 && (u_int)px > screen_size_x(s) - 1)
@@ -1388,7 +1473,8 @@ screen_write_reverseindex(struct screen_write_ctx *ctx, u_int bg)
 			ctx->wp->flags |= PANE_REDRAW;
 #endif
 
-		grid_view_scroll_region_down(s->grid, s->rupper, s->rlower, bg);
+		grid_view_scroll_region_down(s->grid, s->rupper, s->rlower,
+		    s->rleft, s->rright, bg);
 		screen_write_collect_flush(ctx, 0, __func__);
 
 		screen_write_initctx(ctx, &ttyctx, 1);
@@ -1397,6 +1483,58 @@ screen_write_reverseindex(struct screen_write_ctx *ctx, u_int bg)
 		tty_write(tty_cmd_reverseindex, &ttyctx);
 	} else if (s->cy > 0)
 		screen_write_set_cursor(ctx, -1, s->cy - 1);
+
+}
+
+/* Back index (left with scroll). */
+void
+screen_write_backindex(struct screen_write_ctx *ctx, u_int bg)
+{
+	struct screen	*s = ctx->s;
+	struct tty_ctx	 ttyctx;
+
+	if (s->cx == s->rleft) {
+#ifdef ENABLE_SIXEL
+		if (image_free_all(s) && ctx->wp != NULL)
+			ctx->wp->flags |= PANE_REDRAW;
+#endif
+
+		grid_view_scroll_region_right(s->grid, s->rupper, s->rlower,
+		    s->rleft, s->rright, bg);
+		screen_write_collect_flush(ctx, 0, __func__);
+
+		screen_write_initctx(ctx, &ttyctx, 1);
+		ttyctx.bg = bg;
+
+		tty_write(tty_cmd_backindex, &ttyctx);
+	} else if (s->cx > 0)
+		screen_write_set_cursor(ctx, s->cx - 1, -1);
+
+}
+
+/* Forward index (right with scroll). */
+void
+screen_write_forwardindex(struct screen_write_ctx *ctx, u_int bg)
+{
+	struct screen	*s = ctx->s;
+	struct tty_ctx	 ttyctx;
+
+	if (s->cx == s->rright) {
+#ifdef ENABLE_SIXEL
+		if (image_free_all(s) && ctx->wp != NULL)
+			ctx->wp->flags |= PANE_REDRAW;
+#endif
+
+		grid_view_scroll_region_left(s->grid, s->rupper, s->rlower,
+		    s->rleft, s->rright, bg);
+		screen_write_collect_flush(ctx, 0, __func__);
+
+		screen_write_initctx(ctx, &ttyctx, 1);
+		ttyctx.bg = bg;
+
+		tty_write(tty_cmd_forwardindex, &ttyctx);
+	} else if (s->cx < screen_size_x(s) - 1)
+		screen_write_set_cursor(ctx, s->cx + 1, -1);
 
 }
 
@@ -1416,11 +1554,45 @@ screen_write_scrollregion(struct screen_write_ctx *ctx, u_int rupper,
 
 	screen_write_collect_flush(ctx, 0, __func__);
 
-	/* Cursor moves to top-left. */
-	screen_write_set_cursor(ctx, 0, 0);
-
 	s->rupper = rupper;
 	s->rlower = rlower;
+
+	/* Cursor moves to top-left. */
+	screen_write_cursormove(ctx, 0, 0, 1);
+}
+
+/* Set scroll margins. */
+void
+screen_write_scrollmargin(struct screen_write_ctx *ctx, u_int rleft,
+    u_int rright)
+{
+	struct screen	*s = ctx->s;
+	u_int		 sx = screen_size_x(s), sy = screen_size_y(s);
+
+	if (rleft > sx - 1)
+		rleft = sx - 1;
+	if (rright > sx - 1)
+		rright = sx - 1;
+	if (rleft >= rright)	/* cannot be one column */
+		return;
+
+	screen_write_collect_flush(ctx, 0, __func__);
+
+	if (!s->saved_grid) {
+		if (rleft != 0 || rright != sx - 1) {
+			s->saved_flags = s->grid->flags;
+			s->grid->flags &= ~GRID_HISTORY;
+		} else if (s->saved_flags & GRID_HISTORY) {
+			s->grid->flags |= GRID_HISTORY;
+			screen_resize(s, sx, sy, 1);
+		}
+	}
+
+	s->rleft = rleft;
+	s->rright = rright;
+
+	/* Cursor moves to top-left. */
+	screen_write_cursormove(ctx, 0, 0, 1);
 }
 
 /* Line feed. */
@@ -1439,8 +1611,8 @@ screen_write_linefeed(struct screen_write_ctx *ctx, int wrapped, u_int bg)
 	if (wrapped)
 		gl->flags |= GRID_LINE_WRAPPED;
 
-	log_debug("%s: at %u,%u (region %u-%u)", __func__, s->cx, s->cy,
-	    rupper, rlower);
+	log_debug("%s: at %u,%u (region (%u,%u)-(%u,%u))", __func__,
+	    s->cx, s->cy, s->rleft, rupper, s->rright, rlower);
 
 	if (bg != ctx->bg) {
 		screen_write_collect_flush(ctx, 1, __func__);
@@ -1456,7 +1628,8 @@ screen_write_linefeed(struct screen_write_ctx *ctx, int wrapped, u_int bg)
 		if (redraw && ctx->wp != NULL)
 			ctx->wp->flags |= PANE_REDRAW;
 #endif
-		grid_view_scroll_region_up(gd, s->rupper, s->rlower, bg);
+		grid_view_scroll_region_up(gd, s->rupper, s->rlower, s->rleft,
+		    s->rright, bg);
 		screen_write_collect_scroll(ctx, bg);
 		ctx->scrolled++;
 	} else if (s->cy < screen_size_y(s) - 1)
@@ -1487,7 +1660,8 @@ screen_write_scrollup(struct screen_write_ctx *ctx, u_int lines, u_int bg)
 #endif
 
 	for (i = 0; i < lines; i++) {
-		grid_view_scroll_region_up(gd, s->rupper, s->rlower, bg);
+		grid_view_scroll_region_up(gd, s->rupper, s->rlower, s->rleft,
+		    s->rright, bg);
 		screen_write_collect_scroll(ctx, bg);
 	}
 	ctx->scrolled += lines;
@@ -1516,18 +1690,88 @@ screen_write_scrolldown(struct screen_write_ctx *ctx, u_int lines, u_int bg)
 #endif
 
 	for (i = 0; i < lines; i++)
-		grid_view_scroll_region_down(gd, s->rupper, s->rlower, bg);
+		grid_view_scroll_region_down(gd, s->rupper, s->rlower, s->rleft,
+		    s->rright, bg);
 
 	screen_write_collect_flush(ctx, 0, __func__);
 	ttyctx.num = lines;
 	tty_write(tty_cmd_scrolldown, &ttyctx);
 }
 
+/* Scroll left. */
+void
+screen_write_scrollleft(struct screen_write_ctx *ctx, u_int columns, u_int bg)
+{
+	struct screen	*s = ctx->s;
+	struct grid	*gd = s->grid;
+	struct tty_ctx	 ttyctx;
+	u_int		 i;
+
+	screen_write_initctx(ctx, &ttyctx, 1);
+	ttyctx.bg = bg;
+
+	if (columns == 0)
+		columns = 1;
+	else if (columns > s->rright - s->rleft + 1)
+		columns = s->rright - s->rleft + 1;
+
+#ifdef ENABLE_SIXEL
+	if (image_free_all(s) && ctx->wp != NULL)
+		ctx->wp->flags |= PANE_REDRAW;
+#endif
+
+	for (i = 0; i < columns; i++)
+		grid_view_scroll_region_left(gd, s->rupper, s->rlower, s->rleft,
+		    s->rright, bg);
+
+	screen_write_collect_flush(ctx, 0, __func__);
+	ttyctx.num = columns;
+	tty_write(tty_cmd_scrollleft, &ttyctx);
+}
+
+/* Scroll right. */
+void
+screen_write_scrollright(struct screen_write_ctx *ctx, u_int columns, u_int bg)
+{
+	struct screen	*s = ctx->s;
+	struct grid	*gd = s->grid;
+	struct tty_ctx	 ttyctx;
+	u_int		 i;
+
+	screen_write_initctx(ctx, &ttyctx, 1);
+	ttyctx.bg = bg;
+
+	if (columns == 0)
+		columns = 1;
+	else if (columns > s->rright - s->rleft + 1)
+		columns = s->rright - s->rleft + 1;
+
+#ifdef ENABLE_SIXEL
+	if (image_free_all(s) && ctx->wp != NULL)
+		ctx->wp->flags |= PANE_REDRAW;
+#endif
+
+	for (i = 0; i < columns; i++)
+		grid_view_scroll_region_right(gd, s->rupper, s->rlower,
+		    s->rleft, s->rright, bg);
+
+	screen_write_collect_flush(ctx, 0, __func__);
+	ttyctx.num = columns;
+	tty_write(tty_cmd_scrollright, &ttyctx);
+}
+
 /* Carriage return (cursor to start of line). */
 void
 screen_write_carriagereturn(struct screen_write_ctx *ctx)
 {
-	screen_write_set_cursor(ctx, 0, -1);
+	struct screen	*s = ctx->s;
+	u_int		 cx = s->cx;
+
+	if (cx < s->rleft)
+		cx = 0;
+	else
+		cx = s->rleft;
+	screen_write_set_cursor(ctx, cx, -1);
 }
 
 /* Clear to end of screen from cursor. */
@@ -1643,8 +1887,10 @@ screen_write_fullredraw(struct screen_write_ctx *ctx)
 
 /* Trim collected items. */
 static struct screen_write_citem *
-screen_write_collect_trim(struct screen_write_ctx *ctx, u_int y, u_int x,
-    u_int used, int *wrapped)
+screen_write_collect_trim_callback(struct screen_write_ctx *ctx, u_int y,
+    u_int x, u_int used, int *wrapped,
+    void (*callback)(struct screen_write_citem *, void *, void *), void *arg1,
+    void *arg2)
 {
 	struct screen_write_cline	*cl = &ctx->s->write_list[y];
 	struct screen_write_citem	*ci, *ci2, *tmp, *before = NULL;
@@ -1677,7 +1923,7 @@ screen_write_collect_trim(struct screen_write_ctx *ctx, u_int y, u_int x,
 			log_debug("%s: %p %u-%u inside %u-%u", __func__, ci,
 			    csx, cex, sx, ex);
 			TAILQ_REMOVE(&cl->items, ci, entry);
-			screen_write_free_citem(ci);
+			callback(ci, arg1, arg2);
 			if (csx == 0 && ci->wrapped && wrapped != NULL)
 				*wrapped = 1;
 			continue;
@@ -1727,6 +1973,21 @@ screen_write_collect_trim(struct screen_write_ctx *ctx, u_int y, u_int x,
 	return (before);
 }
 
+static void
+screen_write_collect_trim_free_citem(struct screen_write_citem *ci,
+    void * __unused arg1, void * __unused arg2)
+{
+	screen_write_free_citem(ci);
+}
+
+static struct screen_write_citem *
+screen_write_collect_trim(struct screen_write_ctx *ctx, u_int y, u_int x,
+    u_int used, int *wrapped)
+{
+	return (screen_write_collect_trim_callback(ctx, y, x, used, wrapped,
+	    screen_write_collect_trim_free_citem, NULL, NULL));
+}
+
 /* Clear collected lines. */
 static void
 screen_write_collect_clear(struct screen_write_ctx *ctx, u_int y, u_int n)
@@ -1740,34 +2001,68 @@ screen_write_collect_clear(struct screen_write_ctx *ctx, u_int y, u_int n)
 	}
 }
 
+static void
+screen_write_collect_trim_concat(struct screen_write_citem *ci, void *arg1,
+    void *arg2)
+{
+	struct screen_write_cline	*cl = arg1;
+	struct screen_write_citem	*before = arg2;
+
+	if (before == NULL)
+		TAILQ_INSERT_TAIL(&cl->items, ci, entry);
+	else
+		TAILQ_INSERT_BEFORE(before, ci, entry);
+}
+
 /* Scroll collected lines up. */
 static void
 screen_write_collect_scroll(struct screen_write_ctx *ctx, u_int bg)
 {
 	struct screen			*s = ctx->s;
 	struct screen_write_cline	*cl;
-	u_int				 y;
+	u_int				 y, sx = s->rright - s->rleft + 1;
 	char				*saved;
-	struct screen_write_citem	*ci;
+	struct screen_write_citem	*ci, *before;
 
-	log_debug("%s: at %u,%u (region %u-%u)", __func__, s->cx, s->cy,
-	    s->rupper, s->rlower);
+	log_debug("%s: at %u,%u (region (%u,%u)-(%u,%u))", __func__,
+	    s->cx, s->cy, s->rleft, s->rupper, s->rright, s->rlower);
 
-	screen_write_collect_clear(ctx, s->rupper, 1);
-	saved = ctx->s->write_list[s->rupper].data;
+	if (sx == screen_size_x(s)) {
+		screen_write_collect_clear(ctx, s->rupper, 1);
+		before = NULL;
+		saved = ctx->s->write_list[s->rupper].data;
+	} else {
+		before = screen_write_collect_trim(ctx, s->rupper, s->rleft, sx,
+		    NULL);
+	}
 	for (y = s->rupper; y < s->rlower; y++) {
 		cl = &ctx->s->write_list[y + 1];
-		TAILQ_CONCAT(&ctx->s->write_list[y].items, &cl->items, entry);
-		ctx->s->write_list[y].data = cl->data;
+		if (sx == screen_size_x(s)) {
+			TAILQ_CONCAT(&ctx->s->write_list[y].items, &cl->items,
+			    entry);
+			ctx->s->write_list[y].data = cl->data;
+		} else {
+			before = screen_write_collect_trim_callback(ctx,
+			    y + 1, s->rleft, sx, NULL,
+			    screen_write_collect_trim_concat,
+			    &ctx->s->write_list[y], before);
+			memcpy(ctx->s->write_list[y].data + s->rleft,
+			    cl->data + s->rleft, sx);
+		}
 	}
-	ctx->s->write_list[s->rlower].data = saved;
+	if (sx == screen_size_x(s))
+		ctx->s->write_list[s->rlower].data = saved;
 
 	ci = screen_write_get_citem();
-	ci->x = 0;
-	ci->used = screen_size_x(s);
+	ci->x = s->rleft;
+	ci->used = sx;
 	ci->type = CLEAR;
 	ci->bg = bg;
-	TAILQ_INSERT_TAIL(&ctx->s->write_list[s->rlower].items, ci, entry);
+	if (before == NULL)
+		TAILQ_INSERT_TAIL(&ctx->s->write_list[s->rlower].items, ci,
+		    entry);
+	else
+		TAILQ_INSERT_BEFORE(before, ci, entry);
 }
 
 /* Flush collected lines. */
@@ -1782,8 +2077,8 @@ screen_write_collect_flush(struct screen_write_ctx *ctx, int scroll_only,
 	struct tty_ctx			 ttyctx;
 
 	if (ctx->scrolled != 0) {
-		log_debug("%s: scrolled %u (region %u-%u)", __func__,
-		    ctx->scrolled, s->rupper, s->rlower);
+		log_debug("%s: scrolled %u (region (%u,%u)-(%u,%u))", __func__,
+		    ctx->scrolled, s->rleft, s->rupper, s->rright, s->rlower);
 		if (ctx->scrolled > s->rlower - s->rupper + 1)
 			ctx->scrolled = s->rlower - s->rupper + 1;
 
@@ -1890,7 +2185,7 @@ screen_write_collect_end(struct screen_write_ctx *ctx)
 	    ci->used);
 	screen_write_set_cursor(ctx, s->cx + ci->used, -1);
 
-	for (xx = s->cx; xx < screen_size_x(s); xx++) {
+	for (xx = s->cx; xx < s->rright + 1; xx++) {
 		grid_view_get_cell(s->grid, xx, s->cy, &gc);
 		if (~gc.flags & GRID_FLAG_PADDING)
 			break;
@@ -1905,7 +2200,6 @@ screen_write_collect_add(struct screen_write_ctx *ctx,
 {
 	struct screen			*s = ctx->s;
 	struct screen_write_citem	*ci;
-	u_int				 sx = screen_size_x(s);
 	int				 collect;
 
 	/*
@@ -1934,15 +2228,15 @@ screen_write_collect_add(struct screen_write_ctx *ctx,
 		return;
 	}
 
-	if (s->cx > sx - 1 || ctx->item->used > sx - 1 - s->cx)
+	if (s->cx > s->rright || ctx->item->used > s->rright - s->cx)
 		screen_write_collect_end(ctx);
 	ci = ctx->item; /* may have changed */
 
-	if (s->cx > sx - 1) {
+	if (s->cx == s->rright + 1) {
 		log_debug("%s: wrapped at %u,%u", __func__, s->cx, s->cy);
 		ci->wrapped = 1;
 		screen_write_linefeed(ctx, 1, 8);
-		screen_write_set_cursor(ctx, 0, -1);
+		screen_write_set_cursor(ctx, s->rleft, -1);
 	}
 
 	if (ci->used == 0)
@@ -1964,6 +2258,7 @@ screen_write_cell(struct screen_write_ctx *ctx, const struct grid_cell *gc)
 	struct grid_cell 	 tmp_gc, now_gc;
 	struct tty_ctx		 ttyctx;
 	u_int			 sx = screen_size_x(s), sy = screen_size_y(s);
+	u_int			 rx = s->rright + 1;
 	u_int		 	 width = ud->width, xx, not_wrap;
 	int			 selected, skip = 1;
 
@@ -1981,20 +2276,20 @@ screen_write_cell(struct screen_write_ctx *ctx, const struct grid_cell *gc)
 	/* If this character doesn't fit, ignore it. */
 	if ((~s->mode & MODE_WRAP) &&
 	    width > 1 &&
-	    (width > sx || (s->cx != sx && s->cx > sx - width)))
+	    (width > rx - s->rleft || (s->cx != rx && s->cx > rx - width)))
 		return;
 
 	/* If in insert mode, make space for the cells. */
 	if (s->mode & MODE_INSERT) {
-		grid_view_insert_cells(s->grid, s->cx, s->cy, width, 8);
+		grid_view_insert_cells(s->grid, s->rright, s->cx, s->cy, width, 8);
 		skip = 0;
 	}
 
 	/* Check this will fit on the current line and wrap if not. */
-	if ((s->mode & MODE_WRAP) && s->cx > sx - width) {
+	if ((s->mode & MODE_WRAP) && s->cx == rx - width + 1) {
 		log_debug("%s: wrapped at %u,%u", __func__, s->cx, s->cy);
 		screen_write_linefeed(ctx, 1, 8);
-		screen_write_set_cursor(ctx, 0, -1);
+		screen_write_set_cursor(ctx, s->rleft, -1);
 		screen_write_collect_flush(ctx, 0, __func__);
 	}
 
@@ -2066,10 +2361,10 @@ screen_write_cell(struct screen_write_ctx *ctx, const struct grid_cell *gc)
 	 * replace it.
 	 */
 	not_wrap = !(s->mode & MODE_WRAP);
-	if (s->cx <= sx - not_wrap - width)
+	if (s->cx <= rx - not_wrap - width)
 		screen_write_set_cursor(ctx, s->cx + width, -1);
 	else
-		screen_write_set_cursor(ctx,  sx - not_wrap, -1);
+		screen_write_set_cursor(ctx, rx - not_wrap, -1);
 
 	/* Create space for character in insert mode. */
 	if (s->mode & MODE_INSERT) {
@@ -2247,7 +2542,7 @@ screen_write_overwrite(struct screen_write_ctx *ctx, struct grid_cell *gc,
 	    gc->data.width != 1 ||
 	    gc->flags & GRID_FLAG_PADDING) {
 		xx = s->cx + width - 1;
-		while (++xx < screen_size_x(s)) {
+		while (++xx < s->rright + 1) {
 			grid_view_get_cell(gd, xx, s->cy, &tmp_gc);
 			if (~tmp_gc.flags & GRID_FLAG_PADDING)
 				break;
@@ -2340,7 +2635,7 @@ screen_write_sixelimage(struct screen_write_ctx *ctx, struct sixel_image *si,
 			ctx->wp->flags |= PANE_REDRAW;
 		for (i = 0; i < lines; i++) {
 			grid_view_scroll_region_up(gd, 0, screen_size_y(s) - 1,
-			    bg);
+			    0, screen_size_x(s) - 1, bg);
 			screen_write_collect_scroll(ctx, bg);
 		}
 		ctx->scrolled += lines;

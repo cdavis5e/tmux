@@ -108,6 +108,8 @@ screen_reinit(struct screen *s)
 
 	s->rupper = 0;
 	s->rlower = screen_size_y(s) - 1;
+	s->rleft = 0;
+	s->rright = screen_size_x(s) - 1;
 
 	s->mode = MODE_CURSOR|MODE_WRAP|(s->mode & MODE_CRLF);
 
@@ -436,6 +438,8 @@ screen_resize_y(struct screen *s, u_int sy, int eat_empty, u_int *cy)
 	gd->sy = sy;
 	s->rupper = 0;
 	s->rlower = screen_size_y(s) - 1;
+	s->rleft = 0;
+	s->rright = screen_size_x(s) - 1;
 }
 
 /* Set selection. */
@@ -645,8 +649,10 @@ screen_alternate_on(struct screen *s, struct grid_cell *gc, int cursor)
 
 	grid_view_clear(s->grid, 0, 0, sx, sy, 8);
 
-	s->saved_flags = s->grid->flags;
-	s->grid->flags &= ~GRID_HISTORY;
+	if (s->rleft == 0 && s->rright == sx - 1) {
+		s->saved_flags = s->grid->flags;
+		s->grid->flags &= ~GRID_HISTORY;
+	}
 }
 
 /* Exit alternate screen mode and restore the copied grid. */
@@ -688,10 +694,14 @@ screen_alternate_off(struct screen *s, struct grid_cell *gc, int cursor)
 
 	/*
 	 * Turn history back on (so resize can use it) and then resize back to
-	 * the current size.
+	 * the current size. Don't reenable history if DECSLRM is constraining
+	 * the scroll margins--history will be reenabled when DECSLRM is reset
+	 * to default.
 	 */
-	if (s->saved_flags & GRID_HISTORY)
-		s->grid->flags |= GRID_HISTORY;
+	if (s->rleft == 0 && s->rright == sx - 1) {
+		if (s->saved_flags & GRID_HISTORY)
+			s->grid->flags |= GRID_HISTORY;
+	}
 	screen_resize(s, sx, sy, 1);
 
 	grid_destroy(s->saved_grid);
@@ -731,6 +741,8 @@ screen_mode_to_string(int mode)
 		strlcat(tmp, "MOUSE_BUTTON,", sizeof tmp);
 	if (mode & MODE_CURSOR_BLINKING)
 		strlcat(tmp, "CURSOR_BLINKING,", sizeof tmp);
+	if (mode & MODE_CURSOR_BLINKING_SET)
+		strlcat(tmp, "CURSOR_BLINKING_SET,", sizeof tmp);
 	if (mode & MODE_CURSOR_VERY_VISIBLE)
 		strlcat(tmp, "CURSOR_VERY_VISIBLE,", sizeof tmp);
 	if (mode & MODE_MOUSE_UTF8)
@@ -751,6 +763,8 @@ screen_mode_to_string(int mode)
 		strlcat(tmp, "KEYS_EXTENDED,", sizeof tmp);
 	if (mode & MODE_KEYS_EXTENDED_2)
 		strlcat(tmp, "KEYS_EXTENDED_2,", sizeof tmp);
+	if (mode & MODE_LR_MARGINS)
+		strlcat(tmp, "LR_MARGINS,", sizeof tmp);
 	tmp[strlen(tmp) - 1] = '\0';
 	return (tmp);
 }
