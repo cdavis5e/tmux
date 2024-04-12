@@ -253,6 +253,13 @@ static const char *const tty_feature_margins_capabilities[] = {
 	"Dsmg=\\E[?69l",
 	"Clmg=\\E[s",
 	"Cmg=\\E[%i%p1%d;%p2%ds",
+	"Bi=\\E6",
+	"Fi=\\E9",
+	/* note: no Fin or Bin, because DEC terminals didn't support SL or SR */
+	"Ic=\\E[%p1%d'}",
+	"Ic1=\\E['}",
+	"Dc=\\E[%p1%d'~",
+	"Dc1=\\E['~",
 	NULL
 };
 static const struct tty_feature tty_feature_margins = {
@@ -479,7 +486,7 @@ tty_default_features(int *feat, const char *name, u_int version)
 		},
 		{ .name = "tmux",
 		  .features = TTY_FEATURES_BASE_MODERN_XTERM
-			      ",ccolour,cstyle,focus,overline,usstyle,hyperlinks"
+			      ",ccolour,cstyle,focus,margins,overline,usstyle,hyperlinks"
 		},
 		{ .name = "rxvt-unicode",
 		  .features = "256,bpaste,ccolour,cstyle,mouse,title,ignorefkeys"

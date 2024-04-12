@@ -195,6 +195,8 @@ struct input_table_entry {
 /* Escape commands. */
 enum input_esc_type {
 	INPUT_ESC_DECALN,
+	INPUT_ESC_DECBI,
+	INPUT_ESC_DECFI,
 	INPUT_ESC_DECKPAM,
 	INPUT_ESC_DECKPNM,
 	INPUT_ESC_DECRC,
@@ -215,9 +217,11 @@ enum input_esc_type {
 static const struct input_table_entry input_esc_table[] = {
 	{ '0', "(", INPUT_ESC_SCSG0_ON },
 	{ '0', ")", INPUT_ESC_SCSG1_ON },
+	{ '6', "",  INPUT_ESC_DECBI },
 	{ '7', "",  INPUT_ESC_DECSC },
 	{ '8', "",  INPUT_ESC_DECRC },
 	{ '8', "#", INPUT_ESC_DECALN },
+	{ '9', "",  INPUT_ESC_DECFI },
 	{ '=', "",  INPUT_ESC_DECKPAM },
 	{ '>', "",  INPUT_ESC_DECKPNM },
 	{ 'B', "(", INPUT_ESC_SCSG0_OFF },
@@ -243,6 +247,8 @@ enum input_csi_type {
 	INPUT_CSI_DA,
 	INPUT_CSI_DA_TWO,
 	INPUT_CSI_DCH,
+	INPUT_CSI_DECDC,
+	INPUT_CSI_DECIC,
 	INPUT_CSI_DECRQM,
 	INPUT_CSI_DECRQM_PRIVATE,
 	INPUT_CSI_DECSCUSR,
@@ -262,7 +268,7 @@ enum input_csi_type {
 	INPUT_CSI_REP,
 	INPUT_CSI_RM,
 	INPUT_CSI_RM_PRIVATE,
-	INPUT_CSI_SCP,
+	INPUT_CSI_SCP_DECSLRM,
 	INPUT_CSI_SD,
 	INPUT_CSI_SGR,
 	INPUT_CSI_SM,
@@ -317,9 +323,11 @@ static const struct input_table_entry input_csi_table[] = {
 	{ 'q', " ",  INPUT_CSI_DECSCUSR },
 	{ 'q', ">",  INPUT_CSI_XDA },
 	{ 'r', "",   INPUT_CSI_DECSTBM },
-	{ 's', "",   INPUT_CSI_SCP },
+	{ 's', "",   INPUT_CSI_SCP_DECSLRM },
 	{ 't', "",   INPUT_CSI_WINOPS },
-	{ 'u', "",   INPUT_CSI_RCP }
+	{ 'u', "",   INPUT_CSI_RCP },
+	{ '}', "'",  INPUT_CSI_DECIC },
+	{ '~', "'",  INPUT_CSI_DECDC }
 };
 
 /* Device Control (DCS) commands. */
@@ -1432,6 +1440,12 @@ input_esc_dispatch(struct input_ctx *ictx)
 	case INPUT_ESC_RI:
 		screen_write_reverseindex(sctx, ictx->cell.cell.bg);
 		break;
+	case INPUT_ESC_DECBI:
+		screen_write_backindex(sctx, ictx->cell.cell.bg);
+		break;
+	case INPUT_ESC_DECFI:
+		screen_write_forwardindex(sctx, ictx->cell.cell.bg);
+		break;
 	case INPUT_ESC_DECKPAM:
 		screen_write_mode_set(sctx, MODE_KKEYPAD);
 		break;
@@ -1635,6 +1649,11 @@ input_csi_dispatch(struct input_ctx *ictx)
 		if (n != -1)
 			screen_write_deleteline(sctx, n, bg);
 		break;
+	case INPUT_CSI_DECDC:
+		n = input_get(ictx, 0, 1, 1);
+		if (n != -1)
+			screen_write_deletecolumn(sctx, n, bg);
+		break;
 	case INPUT_CSI_DSR_PRIVATE:
 		switch (input_get(ictx, 0, 0, 0)) {
 		case 996:
@@ -1717,6 +1736,11 @@ input_csi_dispatch(struct input_ctx *ictx)
 		if (n != -1)
 			screen_write_insertline(sctx, n, bg);
 		break;
+	case INPUT_CSI_DECIC:
+		n = input_get(ictx, 0, 1, 1);
+		if (n != -1)
+			screen_write_insertcolumn(sctx, n, bg);
+		break;
 	case INPUT_CSI_REP:
 		n = input_get(ictx, 0, 1, 1);
 		if (n == -1)
@@ -1747,8 +1771,14 @@ input_csi_dispatch(struct input_ctx *ictx)
 	case INPUT_CSI_RM_PRIVATE:
 		input_csi_dispatch_rm_private(ictx);
 		break;
-	case INPUT_CSI_SCP:
-		input_save_state(ictx);
+	case INPUT_CSI_SCP_DECSLRM:
+		if (s->mode & MODE_LR_MARGINS) {
+			n = input_get(ictx, 0, 1, 1);
+			m = input_get(ictx, 1, 1, screen_size_x(s));
+			if (n != -1 && m != -1)
+				screen_write_scrollmargin(sctx, n - 1, m - 1);
+		} else
+			input_save_state(ictx);
 		break;
 	case INPUT_CSI_SGR:
 		input_csi_dispatch_sgr(ictx);
@@ -1878,6 +1908,9 @@ input_csi_dispatch_rm_private(struct input_ctx *ictx)
 		case 25:	/* DECTCEM */
 			screen_write_mode_clear(sctx, MODE_CURSOR);
 			break;
+		case 69:	/* DECLRMM */
+			screen_write_mode_clear(sctx, MODE_LR_MARGINS);
+			break;
 		case 1000:	/* XTMOUSEX11 */
 		case 1001:	/* XTMOUSEHI */
 		case 1002:	/* XTMOUSEDRAG */
@@ -1969,6 +2002,9 @@ input_csi_dispatch_sm_private(struct input_ctx *ictx)
 			break;
 		case 25:	/* DECTCEM */
 			screen_write_mode_set(sctx, MODE_CURSOR);
+			break;
+		case 69:	/* DECLRMM */
+			screen_write_mode_set(sctx, MODE_LR_MARGINS);
 			break;
 		case 1000:	/* XTMOUSEX11 */
 			screen_write_mode_clear(sctx, ALL_MOUSE_MODES);
@@ -2149,6 +2185,9 @@ input_csi_dispatch_decrqm_private(struct input_ctx *ictx)
 		break;
 	case 25:	/* DECTCEM */
 		v = !(s->mode & MODE_CURSOR) + 1;
+		break;
+	case 69:	/* DECLRMM */
+		v = !(s->mode & MODE_LR_MARGINS) + 1;
 		break;
 	case 1000:	/* XTMOUSEX11 */
 		v = !(s->mode & MODE_MOUSE_STANDARD) + 1;
@@ -2762,6 +2801,16 @@ input_dcs_dispatch_decrqss(struct input_ctx *ictx)
 		}
 		log_debug("%s: DECSCUSR style = %d", __func__, style);
 		input_reply(ictx, "\033P1$r%d q\033\\", style);
+		break;
+	case INPUT_CSI_SCP_DECSLRM:
+		/*
+		 * Always DECSLRM in this context.
+		 * Left/right margin query: DCS $ q s ST
+		 * Reply: DCS 1 $ r <Ps> ; <Ps> s ST
+		 */
+		log_debug("%s: DECSLRM %d-%d", __func__, s->rleft, s->rright);
+		input_reply(ictx, "\033P1$r%d;%ds\033\\",
+		    s->rleft + 1, s->rright + 1);
 		break;
 	case INPUT_CSI_DECSTBM:
 		/*

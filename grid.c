@@ -736,28 +736,81 @@ void
 grid_move_cells(struct grid *gd, u_int dx, u_int px, u_int py, u_int nx,
     u_int bg)
 {
-	struct grid_line	*gl;
-	u_int			 xx;
+	grid_move_rect(gd, dx, py, px, py, nx, 1, bg);
+}
 
-	if (nx == 0 || px == dx)
+/* Move a rectangular array of cells. */
+void
+grid_move_rect(struct grid *gd, u_int dx, u_int dy, u_int px, u_int py,
+    u_int nx, u_int ny, u_int bg)
+{
+	struct grid_line	*dl, *pl;
+	struct grid_cell_entry	*dce, *pce;
+	struct grid_cell	 gc;
+	u_int			 xx, fx, tx, yy, fy, ty;
+
+	if (nx == 0 || ny == 0 || (px == dx && py == dy))
 		return;
+
+	if (px == 0 && dx == 0 && nx == gd->sx) {
+		grid_move_lines(gd, dy, py, ny, bg);
+		return;
+	}
 
 	if (grid_check_y(gd, __func__, py) != 0)
 		return;
-	gl = &gd->linedata[py];
+	if (grid_check_y(gd, __func__, py + ny - 1) != 0)
+		return;
+	if (grid_check_y(gd, __func__, dy) != 0)
+		return;
+	if (grid_check_y(gd, __func__, dy + ny - 1) != 0)
+		return;
 
-	grid_expand_line(gd, py, px + nx, 8);
-	grid_expand_line(gd, py, dx + nx, 8);
-	memmove(&gl->celldata[dx], &gl->celldata[px],
-	    nx * sizeof *gl->celldata);
-	if (dx + nx > gl->cellused)
-		gl->cellused = dx + nx;
+	for (yy = 0; yy < ny; ++yy) {
+		/*
+		 * If the destination follows the source, copy from the end
+		 * up; otherwise, copy from the beginning down. This is similar
+		 * to the logic underlying memmove(3).
+		 */
+		fy = dy > py ? py + ny - yy - 1 : py + yy;
+		ty = dy > py ? dy + ny - yy - 1 : dy + yy;
+		pl = &gd->linedata[fy];
+		dl = &gd->linedata[ty];
 
-	/* Wipe any cells that have been moved. */
-	for (xx = px; xx < px + nx; xx++) {
-		if (xx >= dx && xx < dx + nx)
-			continue;
-		grid_clear_cell(gd, xx, py, bg);
+		grid_expand_line(gd, fy, px + nx, 8);
+		grid_expand_line(gd, ty, dx + nx, 8);
+		/* Extended cells need to be copied between lines by hand. */
+		if (pl == dl || (~pl->flags & GRID_LINE_EXTENDED))
+			memmove(&dl->celldata[dx], &pl->celldata[px],
+			    nx * sizeof *pl->celldata);
+		else {
+			for (xx = 0; xx < nx; ++xx) {
+				fx = dx > px ? px + nx - xx - 1 : px + xx;
+				tx = dx > px ? dx + nx - xx - 1 : dx + xx;
+				pce = &pl->celldata[fx];
+				dce = &dl->celldata[tx];
+				if (pce->flags & GRID_FLAG_EXTENDED) {
+					grid_get_cell1(pl, fx, &gc);
+					grid_extended_cell(dl, dce, &gc);
+				} else {
+					memcpy(dce, pce, sizeof *pce);
+				}
+			}
+		}
+		if (dx + nx > dl->cellused)
+			dl->cellused = dx + nx;
+		if (pl != dl && (dl->flags & GRID_LINE_EXTENDED))
+			grid_compact_line(dl);
+
+		/* Wipe any cells that have been moved. */
+		for (xx = px; xx < px + nx; xx++) {
+			if (fy >= dy && fy < dy + ny && xx >= dx &&
+			    xx < dx + nx)
+				continue;
+			grid_clear_cell(gd, xx, fy, bg);
+		}
+		if (pl != dl && (pl->flags & GRID_LINE_EXTENDED))
+			grid_compact_line(pl);
 	}
 }
 

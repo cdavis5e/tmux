@@ -4428,7 +4428,7 @@ window_copy_write_line(struct window_mode_entry *wme,
 	window_copy_write_one(wme, ctx, py, hsize - data->oy + py,
 	    screen_size_x(s), &mgc, &cgc, &mkgc);
 
-	if (py == 0 && s->rupper < s->rlower && !data->hide_position) {
+	if (py == 0 && s->rupper < s->rlower && s->rleft < s->rright && !data->hide_position) {
 		value = options_get_string(oo, "copy-mode-position-format");
 		if (*value != '\0') {
 			expanded = format_expand(ft, value);
