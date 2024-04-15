@@ -1922,6 +1922,9 @@ input_csi_dispatch_rm_private(struct input_ctx *ictx)
 		case 25:	/* DECTCEM */
 			screen_write_mode_clear(sctx, MODE_CURSOR);
 			break;
+		case 66:	/* DECNKM */
+			screen_write_mode_clear(sctx, MODE_KKEYPAD);
+			break;
 		case 69:	/* DECLRMM */
 			screen_write_mode_clear(sctx, MODE_LR_MARGINS);
 			break;
@@ -2016,6 +2019,9 @@ input_csi_dispatch_sm_private(struct input_ctx *ictx)
 			break;
 		case 25:	/* DECTCEM */
 			screen_write_mode_set(sctx, MODE_CURSOR);
+			break;
+		case 66:	/* DECNKM */
+			screen_write_mode_set(sctx, MODE_KKEYPAD);
 			break;
 		case 69:	/* DECLRMM */
 			screen_write_mode_set(sctx, MODE_LR_MARGINS);
@@ -2199,6 +2205,9 @@ input_csi_dispatch_decrqm_private(struct input_ctx *ictx)
 		break;
 	case 25:	/* DECTCEM */
 		v = !(s->mode & MODE_CURSOR) + 1;
+		break;
+	case 66:	/* DECNKM */
+		v = !(s->mode & MODE_KKEYPAD) + 1;
 		break;
 	case 69:	/* DECLRMM */
 		v = !(s->mode & MODE_LR_MARGINS) + 1;
