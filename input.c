@@ -131,6 +131,8 @@ static int	input_split(struct input_ctx *);
 static int	input_get(struct input_ctx *, u_int, int, int);
 static void printflike(2, 3) input_reply(struct input_ctx *, const char *, ...);
 static void	input_reply_decrpss_sgr(struct input_ctx *);
+static void	input_reply_deccir(struct input_ctx *);
+static void	input_reply_dectabsr(struct input_ctx *);
 static void	input_set_state(struct input_ctx *,
 		    const struct input_transition *);
 static void	input_reset_cell(struct input_ctx *);
@@ -177,6 +179,7 @@ static void	input_csi_dispatch_winops(struct input_ctx *);
 static void	input_csi_dispatch_sgr_256(struct input_ctx *, int, u_int *);
 static void	input_csi_dispatch_sgr_rgb(struct input_ctx *, int, u_int *);
 static void	input_csi_dispatch_sgr(struct input_ctx *);
+static void	input_csi_dispatch_decrqpsr(struct input_ctx *);
 static int	input_dcs_dispatch(struct input_ctx *);
 static void	input_dcs_dispatch_decrqss(struct input_ctx *);
 static int	input_top_bit_set(struct input_ctx *);
@@ -251,6 +254,7 @@ enum input_csi_type {
 	INPUT_CSI_DECIC,
 	INPUT_CSI_DECRQM,
 	INPUT_CSI_DECRQM_PRIVATE,
+	INPUT_CSI_DECRQPSR,
 	INPUT_CSI_DECSCUSR,
 	INPUT_CSI_DECSTBM,
 	INPUT_CSI_DL,
@@ -330,6 +334,7 @@ static const struct input_table_entry input_csi_table[] = {
 	{ 's', "",   INPUT_CSI_SCP_DECSLRM },
 	{ 't', "",   INPUT_CSI_WINOPS },
 	{ 'u', "",   INPUT_CSI_RCP },
+	{ 'w', "$",  INPUT_CSI_DECRQPSR },
 	{ '}', "'",  INPUT_CSI_DECIC },
 	{ '~', "'",  INPUT_CSI_DECDC }
 };
@@ -1681,7 +1686,9 @@ input_csi_dispatch(struct input_ctx *ictx)
 			input_reply(ictx, "\033[0n");
 			break;
 		case 6:
-			input_reply(ictx, "\033[%u;%uR", s->cy + 1, s->cx + 1);
+			input_reply(ictx, "\033[%u;%uR",
+			    s->cy + 1 - ((s->mode & MODE_ORIGIN) ? s->rupper : 0),
+			    s->cx + 1 - ((s->mode & MODE_ORIGIN) ? s->rleft : 0));
 			break;
 		default:
 			log_debug("%s: unknown '%c'", __func__, ictx->ch);
@@ -1865,6 +1872,9 @@ input_csi_dispatch(struct input_ctx *ictx)
 		break;
 	case INPUT_CSI_DECRQM_PRIVATE:
 		input_csi_dispatch_decrqm_private(ictx);
+		break;
+	case INPUT_CSI_DECRQPSR:
+		input_csi_dispatch_decrqpsr(ictx);
 		break;
 
 	}
@@ -2669,6 +2679,95 @@ input_csi_dispatch_sgr(struct input_ctx *ictx)
 			break;
 		}
 	}
+}
+
+/* Handle CSI DECRQPSR. */
+static void
+input_csi_dispatch_decrqpsr(struct input_ctx *ictx)
+{
+	int	m;
+
+	m = input_get(ictx, 0, 0, 0);
+	switch (m) {
+	case -1:
+		break;
+	case 1:	/* DECCIR */
+		input_reply_deccir(ictx);
+		break;
+	case 2:	/* DECTABSR */
+		input_reply_dectabsr(ictx);
+		break;
+	default:
+		log_debug("%s: unknown %d", __func__, m);
+		break;
+	}
+}
+
+/* Reply to DECRQPSR with a DCS DECCIR. */
+static void
+input_reply_deccir(struct input_ctx *ictx)
+{
+	struct screen		*s = ictx->ctx.s;
+	struct grid_cell	*gc = &ictx->cell.cell;
+	u_int			 cx, cy, pg = 1, gl = ictx->cell.set, gr = 0;
+	char			 sgr = '@', sca = '@', mode = '@', css = '@';
+	const char		*g0, *g1, *g2 = "B", *g3 = "B";
+
+	cx = s->cx + 1;
+	if (s->mode & MODE_ORIGIN)
+		cx -= s->rleft;
+	cy = s->cy + 1;
+	if (s->mode & MODE_ORIGIN)
+		cy -= s->rupper;
+	if (gc->attr & GRID_ATTR_BRIGHT)
+		sgr |= 0x01;
+	if (gc->attr & GRID_ATTR_ALL_UNDERSCORE)
+		sgr |= 0x02;
+	if (gc->attr & GRID_ATTR_BLINK)
+		sgr |= 0x04;
+	if (gc->attr & GRID_ATTR_REVERSE)
+		sgr |= 0x08;
+	if (s->mode & MODE_ORIGIN)
+		mode |= 0x01;
+	if (s->cx == s->rright + 1) {
+		mode |= 0x08;	/* Last Column Flag (implicit in tmux) */
+		cx--;
+	}
+	g0 = ictx->cell.g0set ? "0" : "B";
+	g1 = ictx->cell.g1set ? "0" : "B";
+
+	log_debug("%s: cursor (%u,%u,%u) SGR=%c DECSCA=%c mode=%c", __func__,
+	    s->cx, s->cy, pg, sgr, sca, mode);
+	log_debug("%s: GL=G%u GR=G%u css=%c G0=%s G1=%s G2=%s G3=%s", __func__,
+	    gl, gr, css, g0, g1, g2, g3);
+	input_reply(ictx, "\033P1$u%u;%u;%u;%c;%c;%c;%u;%u;%c;%s%s%s%s\033\\",
+	    cy, cx, pg, sgr, sca, mode, gl, gr, css, g0, g1, g2, g3);
+}
+
+/* Reply to DECRQPSR with a DCS DECTABSR. */
+static void
+input_reply_dectabsr(struct input_ctx *ictx)
+{
+	struct bufferevent	*bev = ictx->event;
+	struct screen		*s = ictx->ctx.s;
+	u_int			 xx, n = 0;
+	char			*reply;
+	int			 len;
+
+	if (bev == NULL)
+		return;
+
+	bufferevent_write(bev, "\033P2$u", 5);	/* DECPSR: DECTABSR */
+	for (xx = 0; xx < screen_size_x(s); ++xx) {
+		if (bit_test(s->tabs, xx)) {
+			log_debug("%s: tab stop at %u", __func__, xx);
+			len = xasprintf(&reply, "%s%u", n++ > 0 ? "/" : "",
+			    xx + 1);
+			bufferevent_write(bev, reply, len);
+			free(reply);
+		}
+	}
+	bufferevent_write(bev, "\033\\", 2);	/* ST */
 }
 
 /* End of input with BEL. */
