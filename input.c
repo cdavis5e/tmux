@@ -182,6 +182,9 @@ static void	input_csi_dispatch_sgr(struct input_ctx *);
 static void	input_csi_dispatch_decrqpsr(struct input_ctx *);
 static int	input_dcs_dispatch(struct input_ctx *);
 static void	input_dcs_dispatch_decrqss(struct input_ctx *);
+static void	input_dcs_dispatch_decrsps(struct input_ctx *);
+static void	input_dcs_dispatch_deccir(struct input_ctx *);
+static void	input_dcs_dispatch_dectabsr(struct input_ctx *);
 static int	input_top_bit_set(struct input_ctx *);
 static int	input_end_bel(struct input_ctx *);
 
@@ -342,6 +345,7 @@ static const struct input_table_entry input_csi_table[] = {
 /* Device Control (DCS) commands. */
 enum input_dcs_type {
 	INPUT_DCS_DECRQSS,
+	INPUT_DCS_DECRSPS,
 	INPUT_DCS_SIXEL
 };
 
@@ -350,7 +354,8 @@ static const struct input_table_entry input_dcs_table[] = {
 #ifdef ENABLE_SIXEL
 	{ 'q', "",  INPUT_DCS_SIXEL },
 #endif
-	{ 'q', "$", INPUT_DCS_DECRQSS }
+	{ 'q', "$", INPUT_DCS_DECRQSS },
+	{ 't', "$", INPUT_DCS_DECRSPS }
 };
 
 /* Input transition. */
@@ -2847,6 +2852,9 @@ input_dcs_dispatch(struct input_ctx *ictx)
 	case INPUT_DCS_DECRQSS:
 		input_dcs_dispatch_decrqss(ictx);
 		break;
+	case INPUT_DCS_DECRSPS:
+		input_dcs_dispatch_decrsps(ictx);
+		break;
 #ifdef ENABLE_SIXEL
 	case INPUT_DCS_SIXEL:
 		w = wp->window;
@@ -3092,6 +3100,219 @@ input_reply_decrpss_sgr(struct input_ctx *ictx)
 		free(tmp);
 	}
 	bufferevent_write(bev, "m\033\\", 3);	/* SGR, ST */
+}
+
+/* Handle a DCS DECRSPS request. */
+static void
+input_dcs_dispatch_decrsps(struct input_ctx *ictx)
+{
+	int			 m;
+
+	m = input_get(ictx, 0, 0, 0);
+	switch (m) {
+	case -1:
+		break;
+	case 1:	/* DECCIR */
+		input_dcs_dispatch_deccir(ictx);
+		break;
+	case 2:	/* DECTABSR */
+		input_dcs_dispatch_dectabsr(ictx);
+		break;
+	default:
+		log_debug("%s: unknown %d", __func__, m);
+		break;
+	}
+}
+
+/* Parse a numeric value from a DCS. */
+static long long
+input_dcs_parse_num(char **ptr, char **out, long long min, long long max,
+    const char *desc, const char *sep)
+{
+	long long	 v;
+	const char	*err;
+
+	if (sep) {
+		*out = strsep(ptr, sep);
+	} else {
+		*out = *ptr;
+	}
+	if (*out == NULL || **out == '\0') {
+		log_debug("%s: missing %s", __func__, desc);
+		return (-1);
+	}
+	v = strtonum(*out, min, max, &err);
+	if (err != NULL) {
+		log_debug("%s: invalid %s \"%s\": %s", __func__, desc, *out,
+		    err);
+		return (-1);
+	}
+	return (v);
+}
+
+/* Parse graphic-encoded data from a DCS. */
+static char
+input_dcs_parse_data(char **ptr, char **out, const char *desc, const char *sep)
+{
+	char		 v;
+
+	if (sep) {
+		*out = strsep(ptr, sep);
+	} else {
+		*out = *ptr;
+	}
+	if (*out == NULL || **out == '\0') {
+		log_debug("%s: missing %s", __func__, desc);
+		return (-1);
+	}
+	v = **out;
+	if ((v & 0xe0) != '@') {
+		log_debug("%s: invalid %s '%c'", __func__, desc, v);
+		return (-1);
+	}
+	return (v);
+}
+
+/* Handle a DCS DECCIR restore request. */
+static void
+input_dcs_dispatch_deccir(struct input_ctx *ictx)
+{
+	struct screen_write_ctx	*sctx = &ictx->ctx;
+	struct screen		*s = sctx->s;
+	struct input_cell	*cell = &ictx->cell;
+	int			 cx, cy, gl;
+	char			 sgr, mode;
+	char			*buf = ictx->input_buf, *ptr, *out;
+	const char		*g0, *g1, *g2, *g3;
+
+	ptr = buf + 1;
+	if ((cy = input_dcs_parse_num(&ptr, &out, 1, screen_size_y(s),
+	     "cursor row", ";")) == -1)
+		return;
+	if ((cx = input_dcs_parse_num(&ptr, &out, 1, screen_size_x(s),
+	     "cursor column", ";")) == -1)
+		return;
+	/* Ignore for now. */
+	if (input_dcs_parse_num(&ptr, &out, 1, INT_MAX, "cursor page",
+	    ";") == -1)
+		return;
+	if ((sgr = input_dcs_parse_data(&ptr, &out, "SGR flags", ";")) == -1)
+		return;
+	/* Ignore for now. */
+	if (input_dcs_parse_data(&ptr, &out, "DECSCA flags", ";") == -1)
+		return;
+	if ((mode = input_dcs_parse_data(&ptr, &out, "mode flags", ";")) == -1)
+		return;
+	if ((gl = input_dcs_parse_num(&ptr, &out, 0, 1, "GL charset #",
+	     ";")) == -1)
+		return;
+	/* Ignore for now. */
+	if (input_dcs_parse_num(&ptr, &out, 0, 1, "GR charset #", ";") == -1)
+		return;
+	/* Ignore for now. */
+	if (input_dcs_parse_data(&ptr, &out, "charset flags", ";") == -1)
+		return;
+	g0 = ptr;
+	while (*ptr >= 0x20 && *ptr <= 0x2f)
+		ptr++;
+	if (*ptr < 0x30 || *ptr >= 0x7f) {
+		log_debug("%s: invalid G0 designation \"%.*s\"",
+		    __func__, (int)(ptr - g0 + 1), g0);
+		return;
+	}
+	ptr++;
+	g1 = ptr;
+	while (*ptr >= 0x20 && *ptr <= 0x2f)
+		ptr++;
+	if (*ptr < 0x30 || *ptr >= 0x7f) {
+		log_debug("%s: invalid G1 designation \"%.*s\"",
+		    __func__, (int)(ptr - g1 + 1), g1);
+		return;
+	}
+	ptr++;
+	g2 = ptr;
+	while (*ptr >= 0x20 && *ptr <= 0x2f)
+		ptr++;
+	if (*ptr < 0x30 || *ptr >= 0x7f) {
+		log_debug("%s: invalid G2 designation \"%.*s\"",
+		    __func__, (int)(ptr - g2 + 1), g2);
+		return;
+	}
+	ptr++;
+	g3 = ptr;
+	while (*ptr >= 0x20 && *ptr <= 0x2f)
+		ptr++;
+	if (*ptr < 0x30 || *ptr >= 0x7f) {
+		log_debug("%s: invalid G3 designation \"%.*s\"",
+		    __func__, (int)(ptr - g3 + 1), g3);
+		return;
+	}
+	ptr++;
+
+	if (sgr & 0x01)
+		cell->cell.attr |= GRID_ATTR_BRIGHT;
+	else
+		cell->cell.attr &= ~GRID_ATTR_BRIGHT;
+	if (sgr & 0x02) {
+		if ((cell->cell.attr & GRID_ATTR_ALL_UNDERSCORE) == 0)
+			cell->cell.attr |= GRID_ATTR_UNDERSCORE;
+	} else
+		cell->cell.attr &= ~GRID_ATTR_ALL_UNDERSCORE;
+	if (sgr & 0x04)
+		cell->cell.attr |= GRID_ATTR_BLINK;
+	else
+		cell->cell.attr &= ~GRID_ATTR_BLINK;
+	if (sgr & 0x08)
+		cell->cell.attr |= GRID_ATTR_REVERSE;
+	else
+		cell->cell.attr &= ~GRID_ATTR_REVERSE;
+	cell->set = gl;
+	if (strncmp(g0, "0", 1) == 0)
+		cell->g0set = 1;
+	else
+		cell->g0set = 0;
+	if (strncmp(g1, "0", 1) == 0)
+		cell->g1set = 1;
+	else
+		cell->g1set = 0;
+	if (mode & 0x01)
+		screen_write_mode_set(sctx, MODE_ORIGIN);
+	else
+		screen_write_mode_clear(sctx, MODE_ORIGIN);
+	if (mode & 0x08)
+		cx = s->rright + 1;
+	screen_write_cursormove(sctx, cx - 1, cy - 1, 1);
+}
+
+/* Handle a DCS DECTABSR restore request. */
+static void
+input_dcs_dispatch_dectabsr(struct input_ctx *ictx)
+{
+	struct screen		*s = ictx->ctx.s;
+	bitstr_t		*tabs;
+	int			 st;
+	char			*buf = ictx->input_buf, *ptr, *out;
+	const char		*err;
+
+	tabs = bit_alloc(screen_size_x(s) - 1);
+	ptr = buf + 1;
+	while ((out = strsep(&ptr, "/")) != NULL) {
+		if (*out == '\0') {
+			log_debug("%s: missing tab stop", __func__);
+			free(tabs);
+			return;
+		}
+		st = strtonum(out, 0, screen_size_x(s) - 1, &err);
+		if (err != NULL) {
+			log_debug("%s: invalid tab stop \"%s\": %s", __func__,
+			    out, err);
+			free(tabs);
+			return;
+		}
+		bit_set(tabs, st - 1);
+	}
+	free(s->tabs);
+	s->tabs = tabs;
 }
 
 /* OSC string started. */
