@@ -96,6 +96,51 @@ colour_join_rgb(u_char r, u_char g, u_char b)
 	    (((int)((b) & 0xff))) | COLOUR_FLAG_RGB);
 }
 
+/* Join Hue, Lightness, and Saturation into a colour. */
+int
+colour_join_hls(u_short h, u_char l, u_char s)
+{
+	int	ch, hp, x, r1, g1, b1, m;
+	u_char	r, g, b;
+
+	ch = ((1 << 22) - abs(2 * ((int)l << 22) / 100 - (1 << 22))) * s / 100;
+	hp = ((int)h << 22) / 60;
+	x = ((long long)ch * ((1 << 22) -
+	    abs(hp % (2 << 22) - (1 << 22)))) >> 22;
+	if (0 <= hp && hp < 1 << 22) {
+		r1 = ch;
+		g1 = x;
+		b1 = 0;
+	} else if (1 << 22 <= hp && hp < 2 << 22) {
+		r1 = x;
+		g1 = ch;
+		b1 = 0;
+	} else if (2 << 22 <= hp && hp < 3 << 22) {
+		r1 = 0;
+		g1 = ch;
+		b1 = x;
+	} else if (3 << 22 <= hp && hp < 4 << 22) {
+		r1 = 0;
+		g1 = x;
+		b1 = ch;
+	} else if (4 << 22 <= hp && hp < 5 << 22) {
+		r1 = x;
+		g1 = 0;
+		b1 = ch;
+	} else if (5 << 22 <= hp && hp < 6 << 22) {
+		r1 = ch;
+		g1 = 0;
+		b1 = x;
+	} else {
+		r1 = g1 = b1 = 0;
+	}
+	m = ((int)l << 22) / 100 - (ch >> 1);
+	r = (u_char)((r1 + m) * 255 >> 22);
+	g = (u_char)((g1 + m) * 255 >> 22);
+	b = (u_char)((b1 + m) * 255 >> 22);
+	return (colour_join_rgb(r, g, b));
+}
+
 /* Split colour into RGB. */
 void
 colour_split_rgb(int c, u_char *r, u_char *g, u_char *b)

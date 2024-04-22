@@ -187,6 +187,8 @@ static void	input_dcs_dispatch_decrqss(struct input_ctx *);
 static void	input_dcs_dispatch_decrsps(struct input_ctx *);
 static void	input_dcs_dispatch_deccir(struct input_ctx *);
 static void	input_dcs_dispatch_dectabsr(struct input_ctx *);
+static void	input_dcs_dispatch_decrsts(struct input_ctx *);
+static void	input_dcs_dispatch_decctr(struct input_ctx *);
 static int	input_top_bit_set(struct input_ctx *);
 static int	input_end_bel(struct input_ctx *);
 
@@ -350,11 +352,13 @@ static const struct input_table_entry input_csi_table[] = {
 enum input_dcs_type {
 	INPUT_DCS_DECRQSS,
 	INPUT_DCS_DECRSPS,
+	INPUT_DCS_DECRSTS,
 	INPUT_DCS_SIXEL
 };
 
 /* Device Control (DCS) command table. */
 static const struct input_table_entry input_dcs_table[] = {
+	{ 'p', "$", INPUT_DCS_DECRSTS },
 #ifdef ENABLE_SIXEL
 	{ 'q', "",  INPUT_DCS_SIXEL },
 #endif
@@ -2942,6 +2946,9 @@ input_dcs_dispatch(struct input_ctx *ictx)
 	case INPUT_DCS_DECRSPS:
 		input_dcs_dispatch_decrsps(ictx);
 		break;
+	case INPUT_DCS_DECRSTS:
+		input_dcs_dispatch_decrsts(ictx);
+		break;
 #ifdef ENABLE_SIXEL
 	case INPUT_DCS_SIXEL:
 		w = wp->window;
@@ -3400,6 +3407,88 @@ input_dcs_dispatch_dectabsr(struct input_ctx *ictx)
 	}
 	free(s->tabs);
 	s->tabs = tabs;
+}
+
+/* Handle a DCS DECRSTS request. */
+static void
+input_dcs_dispatch_decrsts(struct input_ctx *ictx)
+{
+	int			 m;
+
+	m = input_get(ictx, 0, 0, 0);
+	switch (m) {
+	case -1:
+		break;
+	case 1:	/* DECTSR */
+		log_debug("%s: DECTSR ignored: \"%s\"", __func__,
+		    ictx->input_buf + 1);
+		break;
+	case 2:	/* DECCTR */
+		input_dcs_dispatch_decctr(ictx);
+		break;
+	default:
+		log_debug("%s: unknown %d", __func__, m);
+		break;
+	}
+}
+
+/* Handle a DCS DECCTR restore request. */
+static void
+input_dcs_dispatch_decctr(struct input_ctx *ictx)
+{
+	char			*buf = ictx->input_buf, *ptr, *out, *param;
+	int			*palette;
+	int			 i, cs, x, y, z;
+
+	ptr = buf + 1;
+	palette = xcalloc(256, sizeof *palette);
+	memcpy(palette, ictx->palette->palette, 256 * sizeof *palette);
+	while ((out = strsep(&ptr, "/")) != NULL) {
+		if (*out == '\0') {
+			log_debug("%s: empty colour spec", __func__);
+			free(palette);
+			return;
+		}
+		if ((i = input_dcs_parse_num(&out, &param, 0, 255,
+		     "palette index", ";")) == -1) {
+			free(palette);
+			return;
+		}
+		if ((cs = input_dcs_parse_num(&out, &param, 1, 2,
+		     "colour space", ";")) == -1) {
+			free(palette);
+			return;
+		}
+		if ((x = input_dcs_parse_num(&out, &param, 0,
+		     cs == 1 ? 360 : 100, "colour x", ";")) == -1) {
+			free(palette);
+			return;
+		}
+		if ((y = input_dcs_parse_num(&out, &param, 0, 100, "colour y",
+		     ";")) == -1) {
+			free(palette);
+			return;
+		}
+		if ((z = input_dcs_parse_num(&out, &param, 0, 100, "colour z",
+		     NULL)) == -1) {
+			free(palette);
+			return;
+		}
+
+		switch (cs) {
+		case 1:
+			palette[i] = colour_join_hls(x, y, z);
+			break;
+		case 2:
+			x = x * 255 / 100;
+			y = y * 255 / 100;
+			z = z * 255 / 100;
+			palette[i] = colour_join_rgb(x, y, z);
+			break;
+		}
+	}
+	free(ictx->palette->palette);
+	ictx->palette->palette = palette;
 }
 
 /* OSC string started. */
