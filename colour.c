@@ -105,6 +105,50 @@ colour_split_rgb(int c, u_char *r, u_char *g, u_char *b)
 	*b = c & 0xff;
 }
 
+/* Split colour into Hue, Lightness, and Saturation. */
+void
+colour_split_hls(int c, u_short *h, u_char *l, u_char *s)
+{
+	u_char	r, g, b;
+	int	rn, gn, bn, max, min, ch, hp;
+
+	colour_split_rgb(c, &r, &g, &b);
+	/*
+	 * Convert to fixed point. Put 1.0 at bit 22 instead of 24, because
+	 * the hue can range from 0 to 360 degrees.
+	 * Do NOT scale multipliers or divisors. Fixed point is weird that way.
+	 * If the divisor is a fixed-point number, then the dividend must be
+	 * scaled up, because the fixed-point scales would otherwise cancel.
+	 * Divisors for modulus _should_ be scaled, because the remainder is
+	 * defined in terms of a subtraction.
+	 */
+	rn = (r << 22) / 255;
+	gn = (g << 22) / 255;
+	bn = (b << 22) / 255;
+	max = MAX(MAX(rn, gn), bn);
+	min = MIN(MIN(rn, gn), bn);
+	ch = max - min;
+
+	if (ch == 0)
+		hp = 0;
+	else if (max == rn) {
+		hp = ((long long)(gn - bn) << 22) / ch % (6 << 22);
+		if (hp < 0)
+			hp += (6 << 22);
+	} else if (max == gn)
+		hp = ((long long)(bn - rn) << 22) / ch + (2 << 22);
+	else /* max == bn */
+		hp = ((long long)(rn - gn) << 22) / ch + (4 << 22);
+	*h = (u_short)((hp * 60 + (1 << 21)) >> 22);
+	*l = (u_char)(((max + min) * 50 + (1 << 21)) >> 22);
+	if (ch == 0)
+		*s = 0;
+	else
+		*s = (u_char)((((long long)ch << 22) /
+		    ((1 << 22) - abs(max + min - (1 << 22))) *
+		    100 + (1 << 21)) >> 22);
+}
+
 /* Force colour to RGB if not already. */
 int
 colour_force_rgb(int c)

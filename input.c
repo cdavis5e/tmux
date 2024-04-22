@@ -133,6 +133,7 @@ static void printflike(2, 3) input_reply(struct input_ctx *, const char *, ...);
 static void	input_reply_decrpss_sgr(struct input_ctx *);
 static void	input_reply_deccir(struct input_ctx *);
 static void	input_reply_dectabsr(struct input_ctx *);
+static void	input_reply_decctr(struct input_ctx *);
 static void	input_set_state(struct input_ctx *,
 		    const struct input_transition *);
 static void	input_reset_cell(struct input_ctx *);
@@ -180,6 +181,7 @@ static void	input_csi_dispatch_sgr_256(struct input_ctx *, int, u_int *);
 static void	input_csi_dispatch_sgr_rgb(struct input_ctx *, int, u_int *);
 static void	input_csi_dispatch_sgr(struct input_ctx *);
 static void	input_csi_dispatch_decrqpsr(struct input_ctx *);
+static void	input_csi_dispatch_decrqtsr(struct input_ctx *);
 static int	input_dcs_dispatch(struct input_ctx *);
 static void	input_dcs_dispatch_decrqss(struct input_ctx *);
 static void	input_dcs_dispatch_decrsps(struct input_ctx *);
@@ -258,6 +260,7 @@ enum input_csi_type {
 	INPUT_CSI_DECRQM,
 	INPUT_CSI_DECRQM_PRIVATE,
 	INPUT_CSI_DECRQPSR,
+	INPUT_CSI_DECRQTSR,
 	INPUT_CSI_DECSCUSR,
 	INPUT_CSI_DECSTBM,
 	INPUT_CSI_DL,
@@ -337,6 +340,7 @@ static const struct input_table_entry input_csi_table[] = {
 	{ 's', "",   INPUT_CSI_SCP_DECSLRM },
 	{ 't', "",   INPUT_CSI_WINOPS },
 	{ 'u', "",   INPUT_CSI_RCP },
+	{ 'u', "$",  INPUT_CSI_DECRQTSR },
 	{ 'w', "$",  INPUT_CSI_DECRQPSR },
 	{ '}', "'",  INPUT_CSI_DECIC },
 	{ '~', "'",  INPUT_CSI_DECDC }
@@ -1881,6 +1885,9 @@ input_csi_dispatch(struct input_ctx *ictx)
 	case INPUT_CSI_DECRQPSR:
 		input_csi_dispatch_decrqpsr(ictx);
 		break;
+	case INPUT_CSI_DECRQTSR:
+		input_csi_dispatch_decrqtsr(ictx);
+		break;
 
 	}
 
@@ -2771,6 +2778,86 @@ input_reply_dectabsr(struct input_ctx *ictx)
 			bufferevent_write(bev, reply, len);
 			free(reply);
 		}
+	}
+	bufferevent_write(bev, "\033\\", 2);	/* ST */
+}
+
+/* Handle CSI DECRQTSR. */
+static void
+input_csi_dispatch_decrqtsr(struct input_ctx *ictx)
+{
+	int	m;
+
+	m = input_get(ictx, 0, 0, 0);
+	switch (m) {
+	case -1:
+		break;
+	case 1:	/* DECTSR */
+		/* Not really supported ATM. */
+		input_reply(ictx, "\033P1$s\033\\");
+		break;
+	case 2:	/* DECCTR */
+		input_reply_decctr(ictx);
+		break;
+	default:
+		log_debug("%s: unknown %d", __func__, m);
+		break;
+	}
+}
+
+/* Reply to DECRQTSR with a DCS DECCTR. */
+static void
+input_reply_decctr(struct input_ctx *ictx)
+{
+	struct bufferevent	*bev = ictx->event;
+	char			*reply;
+	int			 len, cs, i, c;
+	u_char			 r, g, b, l, s;
+	u_short			 h;
+
+	if (bev == NULL)
+		return;
+
+	cs = input_get(ictx, 1, 0, 2);
+	if (cs == -1)
+		return;
+	if (cs > 2) {
+		log_debug("%s: unknown color space %d", __func__, cs);
+		return;
+	}
+	if (cs == 0)
+		cs = 2;
+
+	bufferevent_write(bev, "\033P2$s", 5);	/* DECTSR: DECCTR */
+	for (i = 0; i < 256; ++i) {
+		c = colour_palette_get(ictx->palette, i | COLOUR_FLAG_256);
+		if (c != -1)
+			c = colour_force_rgb(c);
+		if (c == -1) {
+			log_debug("%s: colour %d invalid", __func__, i);
+			continue;
+		}
+		switch (cs) {
+		case 1:
+			colour_split_hls(c, &h, &l, &s);
+			len = xasprintf(&reply, "%s%d;%d;%hu;%hhu;%hhu",
+			    i > 0 ? "/" : "", i, cs, h, l, s);
+			break;
+		case 2:
+			colour_split_rgb(c, &r, &g, &b);
+			/*
+			 * DECCTR reports RGB colours from 0-100 instead of
+			 * 0-255...
+			 */
+			r = r * 100 / 255;
+			g = g * 100 / 255;
+			b = b * 100 / 255;
+			len = xasprintf(&reply, "%s%d;%d;%hhu;%hhu;%hhu",
+			    i > 0 ? "/" : "", i, cs, r, g, b);
+			break;
+		}
+		bufferevent_write(bev, reply, len);
+		free(reply);
 	}
 	bufferevent_write(bev, "\033\\", 2);	/* ST */
 }

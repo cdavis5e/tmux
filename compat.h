@@ -77,6 +77,14 @@
 #define __weak __attribute__ ((__weak__))
 #endif
 
+#ifndef MIN
+#define MIN(a, b) (((a)<(b))?(a):(b))
+#endif
+
+#ifndef MAX
+#define MAX(a, b) (((a)>(b))?(a):(b))
+#endif
+
 #ifndef ECHOPRT
 #define ECHOPRT 0
 #endif
