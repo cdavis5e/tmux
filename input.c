@@ -247,6 +247,7 @@ static const struct input_table_entry input_esc_table[] = {
 /* Control (CSI) commands. */
 enum input_csi_type {
 	INPUT_CSI_CBT,
+	INPUT_CSI_CHT,
 	INPUT_CSI_CNL,
 	INPUT_CSI_CPL,
 	INPUT_CSI_CUB,
@@ -308,6 +309,7 @@ static const struct input_table_entry input_csi_table[] = {
 	{ 'F', "",   INPUT_CSI_CPL },
 	{ 'G', "",   INPUT_CSI_HPA },
 	{ 'H', "",   INPUT_CSI_CUP },
+	{ 'I', "",   INPUT_CSI_CHT },
 	{ 'J', "",   INPUT_CSI_ED },
 	{ 'K', "",   INPUT_CSI_EL },
 	{ 'L', "",   INPUT_CSI_IL },
@@ -1543,6 +1545,20 @@ input_csi_dispatch(struct input_ctx *ictx)
 			do
 				cx--;
 			while (cx > 0 && !bit_test(s->tabs, cx));
+		}
+		s->cx = cx;
+		break;
+	case INPUT_CSI_CHT:
+		/* Find the next tab point, n times. */
+		cx = s->cx;
+		n = input_get(ictx, 0, 1, 1);
+		if (n == -1)
+			break;
+		while (cx < screen_size_x(s) - 1 && n-- > 0) {
+			do
+				cx++;
+			while (cx > screen_size_x(s) - 1 &&
+			    !bit_test(s->tabs, cx));
 		}
 		s->cx = cx;
 		break;
