@@ -488,6 +488,16 @@ tty_term_apply_overrides(struct tty_term *term)
 	log_debug("DECSLRM flag is %d", !!(term->flags & TERM_DECSLRM));
 
 	/*
+	 * Set or clear the HSCROLL flag if the terminal has the Fin/Bin
+	 * capabilities.
+	 */
+	if (tty_term_has(term, TTYC_FIN) && tty_term_has(term, TTYC_BIN))
+		term->flags |= TERM_HSCROLL;
+	else
+		term->flags &= ~TERM_HSCROLL;
+	log_debug("HSCROLL flag is %d", !!(term->flags & TERM_HSCROLL));
+
+	/*
 	 * Set or clear the DECFRA flag if the terminal has the rectangle
 	 * capability.
 	 */

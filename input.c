@@ -271,9 +271,11 @@ enum input_csi_type {
 	INPUT_CSI_SCP_DECSLRM,
 	INPUT_CSI_SD,
 	INPUT_CSI_SGR,
+	INPUT_CSI_SL,
 	INPUT_CSI_SM,
 	INPUT_CSI_SM_GRAPHICS,
 	INPUT_CSI_SM_PRIVATE,
+	INPUT_CSI_SR,
 	INPUT_CSI_SU,
 	INPUT_CSI_TBC,
 	INPUT_CSI_VPA,
@@ -284,7 +286,9 @@ enum input_csi_type {
 /* Control (CSI) command table. */
 static const struct input_table_entry input_csi_table[] = {
 	{ '@', "",   INPUT_CSI_ICH },
+	{ '@', " ",  INPUT_CSI_SL },
 	{ 'A', "",   INPUT_CSI_CUU },
+	{ 'A', " ",  INPUT_CSI_SR },
 	{ 'B', "",   INPUT_CSI_CUD },
 	{ 'C', "",   INPUT_CSI_CUF },
 	{ 'D', "",   INPUT_CSI_CUB },
@@ -1801,6 +1805,16 @@ input_csi_dispatch(struct input_ctx *ictx)
 		n = input_get(ictx, 0, 1, 1);
 		if (n != -1)
 			screen_write_scrolldown(sctx, n, bg);
+		break;
+	case INPUT_CSI_SL:
+		n = input_get(ictx, 0, 1, 1);
+		if (n != -1)
+			screen_write_scrollleft(sctx, n, bg);
+		break;
+	case INPUT_CSI_SR:
+		n = input_get(ictx, 0, 1, 1);
+		if (n != -1)
+			screen_write_scrollright(sctx, n, bg);
 		break;
 	case INPUT_CSI_TBC:
 		switch (input_get(ictx, 0, 0, 0)) {

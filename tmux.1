@@ -4322,6 +4322,9 @@ Allows setting the cursor style.
 Supports extended keys.
 .It focus
 Supports focus reporting.
+.It hscroll
+Supports horizontal scrolling using the standard ECMA-48 control sequences, SL
+and SR.
 .It hyperlinks
 Supports OSC 8 hyperlinks.
 .It ignorefkeys
@@ -7481,6 +7484,15 @@ the terminal supports default colours.
 Move the cursor left or right; scroll the display at the left or right margin,
 respectively (DECBI and DECFI).
 These are set automatically if the terminal reports it is
+.Em VT420
+compatible.
+.It Em \&Bin , \&Fin
+Scroll the display right or left, respectively, a specified number of columns
+without moving the cursor.
+These correspond to the SL and SR commands specified in ECMA-48.
+These are
+.Em not
+set automatically even if the terminal reports it is
 .Em VT420
 compatible.
 .It Em \&Bidi

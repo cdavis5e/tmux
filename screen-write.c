@@ -1700,6 +1700,68 @@ screen_write_scrolldown(struct screen_write_ctx *ctx, u_int lines, u_int bg)
 	tty_write(tty_cmd_scrolldown, &ttyctx);
 }
 
+/* Scroll left. */
+void
+screen_write_scrollleft(struct screen_write_ctx *ctx, u_int columns, u_int bg)
+{
+	struct screen	*s = ctx->s;
+	struct grid	*gd = s->grid;
+	struct tty_ctx	 ttyctx;
+	u_int		 i;
+
+	screen_write_initctx(ctx, &ttyctx, 1);
+	ttyctx.bg = bg;
+
+	if (columns == 0)
+		columns = 1;
+	else if (columns > s->rright - s->rleft + 1)
+		columns = s->rright - s->rleft + 1;
+
+#ifdef ENABLE_SIXEL
+	if (image_free_all(s) && ctx->wp != NULL)
+		ctx->wp->flags |= PANE_REDRAW;
+#endif
+
+	for (i = 0; i < columns; i++)
+		grid_view_scroll_region_left(gd, s->rupper, s->rlower, s->rleft,
+		    s->rright, bg);
+
+	screen_write_collect_flush(ctx, 0, __func__);
+	ttyctx.num = columns;
+	tty_write(tty_cmd_scrollleft, &ttyctx);
+}
+
+/* Scroll right. */
+void
+screen_write_scrollright(struct screen_write_ctx *ctx, u_int columns, u_int bg)
+{
+	struct screen	*s = ctx->s;
+	struct grid	*gd = s->grid;
+	struct tty_ctx	 ttyctx;
+	u_int		 i;
+
+	screen_write_initctx(ctx, &ttyctx, 1);
+	ttyctx.bg = bg;
+
+	if (columns == 0)
+		columns = 1;
+	else if (columns > s->rright - s->rleft + 1)
+		columns = s->rright - s->rleft + 1;
+
+#ifdef ENABLE_SIXEL
+	if (image_free_all(s) && ctx->wp != NULL)
+		ctx->wp->flags |= PANE_REDRAW;
+#endif
+
+	for (i = 0; i < columns; i++)
+		grid_view_scroll_region_right(gd, s->rupper, s->rlower,
+		    s->rleft, s->rright, bg);
+
+	screen_write_collect_flush(ctx, 0, __func__);
+	ttyctx.num = columns;
+	tty_write(tty_cmd_scrollright, &ttyctx);
+}
+
 /* Carriage return (cursor to start of line). */
 void
 screen_write_carriagereturn(struct screen_write_ctx *ctx)

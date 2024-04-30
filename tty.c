@@ -2201,6 +2201,74 @@ tty_cmd_scrolldown(struct tty *tty, const struct tty_ctx *ctx)
 }
 
 void
+tty_cmd_scrollleft(struct tty *tty, const struct tty_ctx *ctx)
+{
+	u_int		 i;
+	struct client	*c = tty->client;
+
+	if (ctx->bigger ||
+	    (!tty_full_width(tty, ctx) && !tty_use_margin(tty)) ||
+	    tty_fake_bce(tty, &ctx->defaults, 8) ||
+	    !tty_term_has(tty->term, TTYC_CSR) ||
+	    (!tty_term_has(tty->term, TTYC_FI) &&
+	    !tty_term_has(tty->term, TTYC_FIN)) ||
+	    ctx->sx == 1 ||
+	    ctx->sy == 1 ||
+	    c->overlay_check != NULL) {
+		tty_redraw_region(tty, ctx);
+		return;
+	}
+
+	tty_default_attributes(tty, &ctx->defaults, ctx->palette, ctx->bg,
+	    ctx->s->hyperlinks);
+
+	tty_region_pane(tty, ctx, ctx->orupper, ctx->orlower);
+	tty_margin_pane(tty, ctx, ctx->orleft, ctx->orright);
+	tty_cursor_pane(tty, ctx, ctx->orright, ctx->ocy);
+
+	if (tty_term_has(tty->term, TTYC_FIN))
+		tty_putcode_i(tty, TTYC_FIN, ctx->num);
+	else {
+		for (i = 0; i < ctx->num; i++)
+			tty_putcode(tty, TTYC_FI);
+	}
+}
+
+void
+tty_cmd_scrollright(struct tty *tty, const struct tty_ctx *ctx)
+{
+	u_int		 i;
+	struct client	*c = tty->client;
+
+	if (ctx->bigger ||
+	    (!tty_full_width(tty, ctx) && !tty_use_margin(tty)) ||
+	    tty_fake_bce(tty, &ctx->defaults, 8) ||
+	    !tty_term_has(tty->term, TTYC_CSR) ||
+	    (!tty_term_has(tty->term, TTYC_BI) &&
+	    !tty_term_has(tty->term, TTYC_BIN)) ||
+	    ctx->sx == 1 ||
+	    ctx->sy == 1 ||
+	    c->overlay_check != NULL) {
+		tty_redraw_region(tty, ctx);
+		return;
+	}
+
+	tty_default_attributes(tty, &ctx->defaults, ctx->palette, ctx->bg,
+	    ctx->s->hyperlinks);
+
+	tty_region_pane(tty, ctx, ctx->orupper, ctx->orlower);
+	tty_margin_pane(tty, ctx, ctx->orleft, ctx->orright);
+	tty_cursor_pane(tty, ctx, ctx->orleft, ctx->ocy);
+
+	if (tty_term_has(tty->term, TTYC_BIN))
+		tty_putcode_i(tty, TTYC_BIN, ctx->num);
+	else {
+		for (i = 0; i < ctx->num; i++)
+			tty_putcode(tty, TTYC_BI);
+	}
+}
+
+void
 tty_cmd_clearendofscreen(struct tty *tty, const struct tty_ctx *ctx)
 {
 	u_int	px, py, nx, ny;

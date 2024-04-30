@@ -1521,6 +1521,7 @@ struct tty_term {
 #define TERM_RGBCOLOURS 0x10
 #define TERM_VT100LIKE 0x20
 #define TERM_SIXEL 0x40
+#define TERM_HSCROLL 0x80
 	int		 flags;
 
 	LIST_ENTRY(tty_term) entry;
@@ -2565,6 +2566,8 @@ void	tty_cmd_rawstring(struct tty *, const struct tty_ctx *);
 void	tty_cmd_reverseindex(struct tty *, const struct tty_ctx *);
 void	tty_cmd_scrollup(struct tty *, const struct tty_ctx *);
 void	tty_cmd_scrolldown(struct tty *, const struct tty_ctx *);
+void	tty_cmd_scrollleft(struct tty *, const struct tty_ctx *);
+void	tty_cmd_scrollright(struct tty *, const struct tty_ctx *);
 void	tty_cmd_setselection(struct tty *, const struct tty_ctx *);
 
 #ifdef ENABLE_SIXEL
@@ -3165,6 +3168,8 @@ void	 screen_write_backindex(struct screen_write_ctx *, u_int);
 void	 screen_write_forwardindex(struct screen_write_ctx *, u_int);
 void	 screen_write_scrollup(struct screen_write_ctx *, u_int, u_int);
 void	 screen_write_scrolldown(struct screen_write_ctx *, u_int, u_int);
+void	 screen_write_scrollleft(struct screen_write_ctx *, u_int, u_int);
+void	 screen_write_scrollright(struct screen_write_ctx *, u_int, u_int);
 void	 screen_write_carriagereturn(struct screen_write_ctx *);
 void	 screen_write_clearendofscreen(struct screen_write_ctx *, u_int);
 void	 screen_write_clearstartofscreen(struct screen_write_ctx *, u_int);
