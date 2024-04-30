@@ -1934,6 +1934,9 @@ input_csi_dispatch_rm(struct input_ctx *ictx)
 		case 4:		/* IRM */
 			screen_write_mode_clear(sctx, MODE_INSERT);
 			break;
+		case 20:	/* LNM */
+			screen_write_mode_clear(sctx, MODE_CRLF);
+			break;
 		case 34:	/* SCSTCURM */
 			screen_write_mode_set(sctx, MODE_CURSOR_VERY_VISIBLE);
 			break;
@@ -2032,6 +2035,9 @@ input_csi_dispatch_sm(struct input_ctx *ictx)
 			break;
 		case 4:		/* IRM */
 			screen_write_mode_set(sctx, MODE_INSERT);
+			break;
+		case 20:	/* LNM */
+			screen_write_mode_set(sctx, MODE_CRLF);
 			break;
 		case 34:	/* SCSTCURM */
 			screen_write_mode_clear(sctx, MODE_CURSOR_VERY_VISIBLE);
@@ -2180,8 +2186,7 @@ input_csi_dispatch_decrqm(struct input_ctx *ictx)
 		v = !(s->mode & MODE_INSERT) + 1;
 		break;
 	case 20:	/* LNM */
-		/* Can't yet be changed by SM/RM */
-		v = !(s->mode & MODE_CRLF) + 3;
+		v = !(s->mode & MODE_CRLF) + 1;
 		break;
 	case 34:	/* SCSTCURM */
 		v = !!(s->mode & MODE_CURSOR_VERY_VISIBLE) + 1;

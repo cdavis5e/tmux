@@ -639,7 +639,11 @@ input_key(struct screen *s, struct bufferevent *bev, key_code key)
 		    key == C0_ESC ||
 		    (key >= 0x20 && key <= 0x7f)) {
 			ud.data[0] = key;
-			input_key_write(__func__, bev, &ud.data[0], 1);
+			if (key == C0_CR && (s->mode & MODE_CRLF)) {
+				ud.data[1] = '\n';
+				input_key_write(__func__, bev, &ud.data[0], 2);
+			} else
+				input_key_write(__func__, bev, &ud.data[0], 1);
 			return (0);
 		}
 		if (KEYC_IS_UNICODE(key)) {
