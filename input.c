@@ -138,6 +138,8 @@ static void	input_set_state(struct input_ctx *,
 		    const struct input_transition *);
 static void	input_reset_cell(struct input_ctx *);
 static void	input_report_current_theme(struct input_ctx *);
+static void	input_soft_reset(struct input_ctx *);
+
 static void	input_osc_4(struct input_ctx *, const char *);
 static void	input_osc_8(struct input_ctx *, const char *);
 static void	input_osc_10(struct input_ctx *, const char *);
@@ -266,6 +268,7 @@ enum input_csi_type {
 	INPUT_CSI_DECRQTSR,
 	INPUT_CSI_DECSCUSR,
 	INPUT_CSI_DECSTBM,
+	INPUT_CSI_DECSTR,
 	INPUT_CSI_DL,
 	INPUT_CSI_DSR,
 	INPUT_CSI_DSR_PRIVATE,
@@ -340,6 +343,7 @@ static const struct input_table_entry input_csi_table[] = {
 	{ 'n', "",   INPUT_CSI_DSR },
 	{ 'n', ">",  INPUT_CSI_MODOFF },
 	{ 'n', "?",  INPUT_CSI_DSR_PRIVATE },
+	{ 'p', "!",  INPUT_CSI_DECSTR },
 	{ 'p', "$",  INPUT_CSI_DECRQM },
 	{ 'p', "?$", INPUT_CSI_DECRQM_PRIVATE },
 	{ 'q', " ",  INPUT_CSI_DECSCUSR },
@@ -915,6 +919,15 @@ input_reset_cell(struct input_ctx *ictx)
 	memcpy(&ictx->old_cell, &ictx->cell, sizeof ictx->old_cell);
 	ictx->old_cx = 0;
 	ictx->old_cy = 0;
+	ictx->old_mode = 0;
+}
+
+/* Perform a soft reset of the PTY. */
+static void
+input_soft_reset(struct input_ctx *ictx)
+{
+	input_reset_cell(ictx);
+	screen_write_softreset(&ictx->ctx);
 }
 
 /* Save screen state. */
@@ -1916,6 +1929,9 @@ input_csi_dispatch(struct input_ctx *ictx)
 		break;
 	case INPUT_CSI_DECRQTSR:
 		input_csi_dispatch_decrqtsr(ictx);
+		break;
+	case INPUT_CSI_DECSTR:
+		input_soft_reset(ictx);
 		break;
 
 	}

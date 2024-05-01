@@ -341,6 +341,22 @@ screen_write_reset(struct screen_write_ctx *ctx)
 	screen_write_set_cursor(ctx, 0, 0);
 }
 
+/* Reset some screen state. */
+void
+screen_write_softreset(struct screen_write_ctx *ctx)
+{
+	struct screen	*s = ctx->s;
+
+	screen_write_scrollregion(ctx, 0, screen_size_y(s) - 1);
+	screen_write_scrollmargin(ctx, 0, screen_size_x(s) - 1);
+
+	s->mode = MODE_CURSOR|MODE_WRAP|(s->mode & MODE_CRLF);
+	if (options_get_number(global_options, "extended-keys") == 2)
+		s->mode = (s->mode & ~EXTENDED_KEY_MODES)|MODE_KEYS_EXTENDED;
+
+	screen_write_set_cursor(ctx, 0, 0);
+}
+
 /* Write character. */
 void
 screen_write_putc(struct screen_write_ctx *ctx, const struct grid_cell *gcp,
