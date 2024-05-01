@@ -127,6 +127,16 @@ struct winlink;
 #define VISUAL_ON 1
 #define VISUAL_BOTH 2
 
+/* Terminal emulation option values. */
+/* Deliberately carefully chosen to match up with VT5xx's DECTID. */
+#define TERM_VT100 0
+#define TERM_VT101 1
+#define TERM_VT102 2
+#define TERM_VT125 3
+#define TERM_VT132 4
+#define TERM_VT220 5
+#define TERM_VT241 6
+
 /* No key or unknown key. */
 #define KEYC_NONE            0x000ff000000000ULL
 #define KEYC_UNKNOWN         0x000fe000000000ULL
