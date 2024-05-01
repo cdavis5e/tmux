@@ -79,6 +79,9 @@ struct input_ctx {
 	struct screen_write_ctx ctx;
 	struct colour_palette  *palette;
 
+	int			term_level;
+	int			max_level;
+
 	struct input_cell	cell;
 
 	struct input_cell	old_cell;
@@ -266,6 +269,7 @@ enum input_csi_type {
 	INPUT_CSI_DECRQM_PRIVATE,
 	INPUT_CSI_DECRQPSR,
 	INPUT_CSI_DECRQTSR,
+	INPUT_CSI_DECSCL,
 	INPUT_CSI_DECSCUSR,
 	INPUT_CSI_DECSTBM,
 	INPUT_CSI_DECSTR,
@@ -344,6 +348,7 @@ static const struct input_table_entry input_csi_table[] = {
 	{ 'n', ">",  INPUT_CSI_MODOFF },
 	{ 'n', "?",  INPUT_CSI_DSR_PRIVATE },
 	{ 'p', "!",  INPUT_CSI_DECSTR },
+	{ 'p', "\"", INPUT_CSI_DECSCL },
 	{ 'p', "$",  INPUT_CSI_DECRQM },
 	{ 'p', "?$", INPUT_CSI_DECRQM_PRIVATE },
 	{ 'q', " ",  INPUT_CSI_DECSCUSR },
@@ -957,6 +962,15 @@ input_restore_state(struct input_ctx *ictx)
 	screen_write_cursormove(sctx, ictx->old_cx, ictx->old_cy, 0);
 }
 
+#ifdef ENABLE_SIXEL
+/* Return whether or not the given terminal type is a graphics-capable one. */
+static int
+input_is_graphics_term(int term)
+{
+	return (term == TERM_VT125 || term == TERM_VT241);
+}
+#endif
+
 /* Initialise input parser. */
 struct input_ctx *
 input_init(struct window_pane *wp, struct bufferevent *bev,
@@ -968,6 +982,29 @@ input_init(struct window_pane *wp, struct bufferevent *bev,
 	ictx->wp = wp;
 	ictx->event = bev;
 	ictx->palette = palette;
+
+	if (wp) {
+		ictx->max_level = options_get_number(wp->options,
+		    "default-emulation-level");
+		switch (ictx->max_level) {
+		case TERM_VT132:
+			log_debug("%s: unsupported emulation VT131/132",
+			    __func__);
+#ifdef ENABLE_SIXEL
+			ictx->max_level = TERM_VT241;
+#else
+			ictx->max_level = TERM_VT220;
+#endif
+			break;
+		}
+	} else {
+#ifdef ENABLE_SIXEL
+		ictx->max_level = TERM_VT241;
+#else
+		ictx->max_level = TERM_VT220;
+#endif
+	}
+	ictx->term_level = ictx->max_level;
 
 	ictx->input_space = INPUT_BUF_START;
 	ictx->input_buf = xmalloc(INPUT_BUF_START);
@@ -1486,9 +1523,13 @@ input_esc_dispatch(struct input_ctx *ictx)
 		screen_write_reverseindex(sctx, ictx->cell.cell.bg);
 		break;
 	case INPUT_ESC_DECBI:
+		if (ictx->term_level < TERM_VT220)
+			break;
 		screen_write_backindex(sctx, ictx->cell.cell.bg);
 		break;
 	case INPUT_ESC_DECFI:
+		if (ictx->term_level < TERM_VT220)
+			break;
 		screen_write_forwardindex(sctx, ictx->cell.cell.bg);
 		break;
 	case INPUT_ESC_DECKPAM:
@@ -1673,11 +1714,34 @@ input_csi_dispatch(struct input_ctx *ictx)
 		case -1:
 			break;
 		case 0:
+			switch (ictx->max_level) {
+			case TERM_VT125:
 #ifdef ENABLE_SIXEL
-			input_reply(ictx, "\033[?1;2;4c");
+				input_reply(ictx, "\033[?12;7;0;1c");
+				break;
 #else
-			input_reply(ictx, "\033[?1;2c");
+				/* FALLTHROUGH */
 #endif
+			case TERM_VT100:
+				input_reply(ictx, "\033[?1;2c");
+				break;
+			case TERM_VT101:
+				input_reply(ictx, "\033[?1;0c");
+				break;
+			case TERM_VT102:
+				input_reply(ictx, "\033[?6c");
+				break;
+			case TERM_VT241:
+#ifdef ENABLE_SIXEL
+				input_reply(ictx, "\033[?62;1;2;4;16;17;21;22c");
+				break;
+#else
+				/* FALLTHROUGH */
+#endif
+			case TERM_VT220:
+				input_reply(ictx, "\033[?62;1;2;16;17;21;22c");
+				break;
+			}
 			break;
 		default:
 			log_debug("%s: unknown '%c'", __func__, ictx->ch);
@@ -1697,6 +1761,8 @@ input_csi_dispatch(struct input_ctx *ictx)
 		}
 		break;
 	case INPUT_CSI_ECH:
+		if (ictx->term_level < TERM_VT220)
+			break;
 		n = input_get(ictx, 0, 1, 1);
 		if (n != -1)
 			screen_write_clearcharacter(sctx, n, bg);
@@ -1718,6 +1784,8 @@ input_csi_dispatch(struct input_ctx *ictx)
 			screen_write_deleteline(sctx, n, bg);
 		break;
 	case INPUT_CSI_DECDC:
+		if (ictx->term_level < TERM_VT220)
+			break;
 		n = input_get(ictx, 0, 1, 1);
 		if (n != -1)
 			screen_write_deletecolumn(sctx, n, bg);
@@ -1797,6 +1865,8 @@ input_csi_dispatch(struct input_ctx *ictx)
 			screen_write_cursormove(sctx, n - 1, -1, 1);
 		break;
 	case INPUT_CSI_ICH:
+		if (ictx->term_level < TERM_VT220)
+			break;
 		n = input_get(ictx, 0, 1, 1);
 		if (n != -1)
 			screen_write_insertcharacter(sctx, n, bg);
@@ -1807,6 +1877,8 @@ input_csi_dispatch(struct input_ctx *ictx)
 			screen_write_insertline(sctx, n, bg);
 		break;
 	case INPUT_CSI_DECIC:
+		if (ictx->term_level < TERM_VT220)
+			break;
 		n = input_get(ictx, 0, 1, 1);
 		if (n != -1)
 			screen_write_insertcolumn(sctx, n, bg);
@@ -1919,19 +1991,61 @@ input_csi_dispatch(struct input_ctx *ictx)
 			input_reply(ictx, "\033P>|tmux %s\033\\", getversion());
 		break;
 	case INPUT_CSI_DECRQM:
-		input_csi_dispatch_decrqm(ictx);
+		if (ictx->term_level >= TERM_VT220)
+			input_csi_dispatch_decrqm(ictx);
 		break;
 	case INPUT_CSI_DECRQM_PRIVATE:
-		input_csi_dispatch_decrqm_private(ictx);
+		if (ictx->term_level >= TERM_VT220)
+			input_csi_dispatch_decrqm_private(ictx);
 		break;
 	case INPUT_CSI_DECRQPSR:
-		input_csi_dispatch_decrqpsr(ictx);
+		if (ictx->term_level >= TERM_VT220)
+			input_csi_dispatch_decrqpsr(ictx);
 		break;
 	case INPUT_CSI_DECRQTSR:
-		input_csi_dispatch_decrqtsr(ictx);
+		if (ictx->term_level >= TERM_VT220)
+			input_csi_dispatch_decrqtsr(ictx);
+		break;
+	case INPUT_CSI_DECSCL:
+		if (ictx->max_level < TERM_VT220)
+			break;
+		m = input_get(ictx, 1, 0, 0);
+		switch ((n = input_get(ictx, 0, 61, 0))) {
+		case -1:
+			break;
+		case 61:
+#ifdef ENABLE_SIXEL
+			ictx->term_level = input_is_graphics_term(
+			    ictx->max_level) ? TERM_VT125 : TERM_VT100;
+#else
+			ictx->term_level = TERM_VT100;
+#endif
+			log_debug("%s: switching to level 1", __func__);
+			input_soft_reset(ictx);
+			break;
+		case 62:
+			if (m != 1) {
+				log_debug("%s: 8-bit mode is not yet supported",
+				    __func__);
+				break;
+			}
+#ifdef ENABLE_SIXEL
+			ictx->term_level = input_is_graphics_term(
+			    ictx->max_level) ? TERM_VT241 : TERM_VT220;
+#else
+			ictx->term_level = TERM_VT220;
+#endif
+			log_debug("%s: switching to level 2", __func__);
+			input_soft_reset(ictx);
+			break;
+		default:
+			log_debug("%s: unhandled level %d", __func__, n);
+			break;
+		}
 		break;
 	case INPUT_CSI_DECSTR:
-		input_soft_reset(ictx);
+		if (ictx->term_level >= TERM_VT220)
+			input_soft_reset(ictx);
 		break;
 
 	}
@@ -1998,12 +2112,27 @@ input_csi_dispatch_rm_private(struct input_ctx *ictx)
 			screen_write_mode_set(sctx, MODE_CURSOR_BLINKING_SET);
 			break;
 		case 25:	/* DECTCEM */
+			if (ictx->term_level < TERM_VT220) {
+				log_debug("%s: DECTCEM ignored in VT100 mode",
+				    __func__);
+				break;
+			}
 			screen_write_mode_clear(sctx, MODE_CURSOR);
 			break;
 		case 66:	/* DECNKM */
+			if (ictx->term_level < TERM_VT220) {
+				log_debug("%s: DECNKM ignored in VT100 mode",
+				    __func__);
+				break;
+			}
 			screen_write_mode_clear(sctx, MODE_KKEYPAD);
 			break;
 		case 69:	/* DECLRMM */
+			if (ictx->term_level < TERM_VT220) {
+				log_debug("%s: DECLRMM ignored in VT100 mode",
+				    __func__);
+				break;
+			}
 			screen_write_mode_clear(sctx, MODE_LR_MARGINS);
 			screen_write_scrollmargin(sctx, 0, screen_size_x(sctx->s) - 1);
 			break;
@@ -2100,12 +2229,27 @@ input_csi_dispatch_sm_private(struct input_ctx *ictx)
 			screen_write_mode_set(sctx, MODE_CURSOR_BLINKING_SET);
 			break;
 		case 25:	/* DECTCEM */
+			if (ictx->term_level < TERM_VT220) {
+				log_debug("%s: DECTCEM ignored in VT100 mode",
+				    __func__);
+				break;
+			}
 			screen_write_mode_set(sctx, MODE_CURSOR);
 			break;
 		case 66:	/* DECNKM */
+			if (ictx->term_level < TERM_VT220) {
+				log_debug("%s: DECNKM ignored in VT100 mode",
+				    __func__);
+				break;
+			}
 			screen_write_mode_set(sctx, MODE_KKEYPAD);
 			break;
 		case 69:	/* DECLRMM */
+			if (ictx->term_level < TERM_VT220) {
+				log_debug("%s: DECLRMM ignored in VT100 mode",
+				    __func__);
+				break;
+			}
 			screen_write_mode_set(sctx, MODE_LR_MARGINS);
 			break;
 		case 1000:	/* XT_MSE_X11 */
@@ -2156,6 +2300,8 @@ input_csi_dispatch_sm_graphics(__unused struct input_ctx *ictx)
 #ifdef ENABLE_SIXEL
 	int	n, m, o;
 
+	if (!input_is_graphics_term(ictx->term_level))
+		return;
 	if (ictx->param_list_len > 3)
 		return;
 	n = input_get(ictx, 0, 0, 0);
@@ -2987,16 +3133,21 @@ input_dcs_dispatch(struct input_ctx *ictx)
 
 	switch (entry->type) {
 	case INPUT_DCS_DECRQSS:
-		input_dcs_dispatch_decrqss(ictx);
+		if (ictx->term_level >= TERM_VT220)
+			input_dcs_dispatch_decrqss(ictx);
 		break;
 	case INPUT_DCS_DECRSPS:
-		input_dcs_dispatch_decrsps(ictx);
+		if (ictx->term_level >= TERM_VT220)
+			input_dcs_dispatch_decrsps(ictx);
 		break;
 	case INPUT_DCS_DECRSTS:
-		input_dcs_dispatch_decrsts(ictx);
+		if (ictx->term_level >= TERM_VT220)
+			input_dcs_dispatch_decrsts(ictx);
 		break;
 #ifdef ENABLE_SIXEL
 	case INPUT_DCS_SIXEL:
+		if (!input_is_graphics_term(ictx->term_level))
+			break;
 		w = wp->window;
 		if (input_split(ictx) != 0)
 			return (0);
@@ -3024,7 +3175,7 @@ input_dcs_dispatch_decrqss(struct input_ctx *ictx)
 	struct screen			*s = ictx->ctx.s;
 	struct input_table_entry	*entry;
 	char				*seq;
-	int				 style;
+	int				 n;
 	const struct input_state	*oldstate;
 
 	/*
@@ -3055,14 +3206,34 @@ input_dcs_dispatch_decrqss(struct input_ctx *ictx)
 	log_debug("%s: '%c' \"%s\"", __func__, ictx->ch, ictx->interm_buf);
 
 	switch (entry->type) {
+	case INPUT_CSI_DECSCL:
+		/*
+		 * VT conformance level query: DCS $ q " p ST
+		 * Reply: DCS 1 $ r <Ps> " p ST
+		 */
+		switch (ictx->term_level) {
+		case TERM_VT100:
+		case TERM_VT101:
+		case TERM_VT102:
+		case TERM_VT125:
+			n = 61;
+			break;
+		case TERM_VT220:
+		case TERM_VT241:
+			n = 62;
+			break;
+		}
+		log_debug("%s: DECSCL level %d", __func__, n);
+		input_reply(ictx, "\033P1$r%d\"p\033\\", n);
+		break;
 	case INPUT_CSI_DECSCUSR:
 		/*
 		 * Cursor style query: DCS $ q SP q ST
 		 * Reply: DCS 1 $ r <Ps> SP q ST
 		 */
-		style = s->cstyle;
-		if (style > 0 && style <= SCREEN_CURSOR_BAR)
-			style = style * 2 - !!(s->mode & MODE_CURSOR_BLINKING);
+		n = s->cstyle;
+		if (n > 0 && n <= SCREEN_CURSOR_BAR)
+			n = n * 2 - !!(s->mode & MODE_CURSOR_BLINKING);
 		else {
 			/*
 			 * No explicit runtime style: fall back to the
@@ -3073,14 +3244,14 @@ input_dcs_dispatch_decrqss(struct input_ctx *ictx)
 				oo = wp->options;
 			else
 				oo = global_options;
-			style = options_get_number(oo, "cursor-style");
+			n = options_get_number(oo, "cursor-style");
 
 			/* Sanity clamp: valid Ps are 0..6 per DECSCUSR. */
-			if (style < 0 || style > 6)
-				style = 0;
+			if (n < 0 || n > 6)
+				n = 0;
 		}
-		log_debug("%s: DECSCUSR style = %d", __func__, style);
-		input_reply(ictx, "\033P1$r%d q\033\\", style);
+		log_debug("%s: DECSCUSR style = %d", __func__, n);
+		input_reply(ictx, "\033P1$r%d q\033\\", n);
 		break;
 	case INPUT_CSI_SCP_DECSLRM:
 		/*

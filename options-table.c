@@ -105,6 +105,9 @@ static const char *options_table_extended_keys_format_list[] = {
 static const char *options_table_allow_passthrough_list[] = {
 	"off", "on", "all", NULL
 };
+static const char *options_table_default_emulation_level_list[] = {
+	"100", "101", "102", "125", "132", "220", "241", NULL
+};
 
 /* Status line format. */
 #define OPTIONS_TABLE_STATUS_FORMAT1 \
@@ -347,6 +350,18 @@ const struct options_table_entry options_table[] = {
 	  .scope = OPTIONS_TABLE_SERVER,
 	  .default_str = TMUX_TERM,
 	  .text = "Default for the 'TERM' environment variable."
+	},
+
+	{ .name = "default-emulation-level",
+	  .type = OPTIONS_TABLE_CHOICE,
+	  .scope = OPTIONS_TABLE_WINDOW|OPTIONS_TABLE_PANE,
+	  .choices = options_table_default_emulation_level_list,
+#ifdef ENABLE_SIXEL
+	  .default_num = TERM_VT241,
+#else
+	  .default_num = TERM_VT220,
+#endif
+	  .text = "Default DEC VTxxx emulation level."
 	},
 
 	{ .name = "editor",
