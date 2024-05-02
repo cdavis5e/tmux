@@ -2898,6 +2898,7 @@ int	 server_is_marked(struct session *, struct winlink *,
 int	 server_check_marked(void);
 int	 server_start(struct tmuxproc *, uint64_t, struct event_base *, int,
 	     char *);
+void	 server_loop_once(void);
 void	 server_update_socket(void);
 void	 server_add_accept(int);
 void printflike(1, 2) server_add_message(const char *, ...);

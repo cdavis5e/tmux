@@ -971,10 +971,37 @@ window_pane_create(struct window *w, u_int sx, u_int sy, u_int hlimit)
 }
 
 static void
+window_pane_exit_timer(__unused int fd, __unused short events, void *arg)
+{
+	struct window_pane	*wp = arg;
+
+	log_debug("%%%u (%d) exit timer expired", wp->id, wp->pid);
+}
+
+static void
 window_pane_destroy(struct window_pane *wp)
 {
 	struct window_pane_resize	*r;
 	struct window_pane_resize	*r1;
+	struct event			 ev;
+	struct timeval			 tv;
+
+	tv.tv_usec = options_get_number(wp->options, "exit-time");
+	if (tv.tv_usec != 0 && !window_pane_exited(wp)) {
+		/* Give the process tree a chance to clean up. */
+		kill(wp->pid, SIGHUP);
+		if (wp->fd != -1)
+			write(wp->fd, "\x04", 1);
+		killpg(wp->pid, SIGCONT);
+		evtimer_set(&ev, window_pane_exit_timer, wp);
+		tv.tv_sec = tv.tv_usec / 1000;
+		tv.tv_usec %= 1000;
+		tv.tv_usec *= 1000;
+		evtimer_add(&ev, &tv);
+		while (!window_pane_exited(wp) && evtimer_pending(&ev, &tv))
+			server_loop_once();
+		evtimer_del(&ev);
+	}
 
 	window_pane_reset_mode_all(wp);
 	free(wp->searchstr);

@@ -1170,6 +1170,17 @@ const struct options_table_entry options_table[] = {
 	  .text = "Style of selection in copy mode."
 	},
 
+	{ .name = "exit-time",
+	  .type = OPTIONS_TABLE_NUMBER,
+	  .scope = OPTIONS_TABLE_WINDOW|OPTIONS_TABLE_PANE,
+	  .minimum = 0,
+	  .maximum = 60000,
+	  .default_num = 0,
+	  .unit = "milliseconds",
+	  .text = "Maximum time to wait for processes to exit when tearing "
+		  "down a window."
+	},
+
 	{ .name = "fill-character",
 	  .type = OPTIONS_TABLE_STRING,
 	  .scope = OPTIONS_TABLE_WINDOW,
