@@ -506,7 +506,7 @@ tty_default_features(int *feat, const char *name, u_int version)
 		},
 		{ .name = "iTerm2",
 		  .features = TTY_FEATURES_BASE_MODERN_XTERM
-			      ",ccolour,cstyle,extkeys,focus,hscroll,margins,usstyle,sync,osc7,hyperlinks"
+			      ",ccolour,cstyle,extkeys,focus,hscroll,margins,overline,usstyle,sync,osc7,hyperlinks"
 		},
 		{ .name = "foot",
 		  .features = TTY_FEATURES_BASE_MODERN_XTERM
