@@ -4928,6 +4928,13 @@ DEC private commands and modes.
 The DECSCL control sequence may be used to change this while running.
 The default is 241 if SIXEL support is enabled, and 220 otherwise.
 .Pp
+.It Ic exit-time Ar milliseconds
+Set the maximum time to wait when a pane is killed for any running process to
+terminate before proceeding to tear down the pane.
+The default is 0, meaning that
+.Nm
+does not wait.
+.Pp
 .It Ic fill-character Ar character
 Set the character used to fill areas of the terminal unused by a window.
 .Pp

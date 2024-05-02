@@ -259,9 +259,9 @@ server_start(struct tmuxproc *client, uint64_t flags, struct event_base *base,
 	exit(0);
 }
 
-/* Server loop callback. */
-static int
-server_loop(void)
+/* Perform once-per-iteration tasks for the server loop. */
+static void
+server_loop_common(void)
 {
 	struct client	*c;
 	u_int		 items;
@@ -277,6 +277,15 @@ server_loop(void)
 	} while (items != 0);
 
 	server_client_loop();
+}
+
+/* Server loop callback. */
+static int
+server_loop(void)
+{
+	struct client	*c;
+
+	server_loop_common();
 
 	if (!options_get_number(global_options, "exit-empty") && !server_exit)
 		return (0);
@@ -305,6 +314,24 @@ server_loop(void)
 	return (1);
 }
 
+/* Server loop callback that always tells proc_loop() to stop. */
+static int
+server_loop_once_cb(void)
+{
+	server_loop_common();
+
+	return (1);
+}
+
+/* Run one iteration of the server's main loop. */
+void
+server_loop_once(void)
+{
+	if (server_proc == NULL)
+		return;
+	proc_loop(server_proc, server_loop_once_cb);
+}
+
 /* Exit the server by killing all clients and windows. */
 static void
 server_send_exit(void)
@@ -313,6 +340,8 @@ server_send_exit(void)
 	struct session	*s, *s1;
 
 	cmd_wait_for_flush();
+
+	job_kill_all();
 
 	TAILQ_FOREACH_SAFE(c, &clients, entry, c1) {
 		if (c->flags & CLIENT_SUSPENDED)
