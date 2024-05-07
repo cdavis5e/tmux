@@ -2978,9 +2978,12 @@ tty_attributes(struct tty *tty, const struct grid_cell *gc,
 	if (changed & GRID_ATTR_ALL_UNDERSCORE) {
 		if (changed & GRID_ATTR_UNDERSCORE)
 			tty_putcode(tty, TTYC_SMUL);
-		else if (changed & GRID_ATTR_UNDERSCORE_2)
-			tty_putcode_i(tty, TTYC_SMULX, 2);
-		else if (changed & GRID_ATTR_UNDERSCORE_3)
+		else if (changed & GRID_ATTR_UNDERSCORE_2) {
+			if (tty_term_has(tty->term, TTYC_SMUL2))
+				tty_putcode(tty, TTYC_SMUL2);
+			else
+				tty_putcode_i(tty, TTYC_SMULX, 2);
+		} else if (changed & GRID_ATTR_UNDERSCORE_3)
 			tty_putcode_i(tty, TTYC_SMULX, 3);
 		else if (changed & GRID_ATTR_UNDERSCORE_4)
 			tty_putcode_i(tty, TTYC_SMULX, 4);
