@@ -367,6 +367,21 @@ tty_term_override_next(const char *s, size_t *offset)
 }
 
 void
+tty_term_add_local_override(struct tty_term *term, const char *capabilities)
+{
+	size_t		 newlen;
+
+	if (term->local_overrides == NULL)
+		term->local_overrides = xstrdup(capabilities);
+	else {
+		newlen = strlen(term->local_overrides) + 1 + strlen(capabilities);
+		term->local_overrides = xrealloc(term->local_overrides, newlen);
+		strlcat(term->local_overrides, ":", newlen);
+		strlcat(term->local_overrides, capabilities, newlen);
+	}
+}
+
+void
 tty_term_apply(struct tty_term *term, const char *capabilities, int quiet)
 {
 	const struct tty_term_code_entry	*ent;
@@ -451,6 +466,10 @@ tty_term_apply_overrides(struct tty_term *term)
 	const char			*s, *acs;
 	size_t				 offset;
 	char				*first;
+
+	/* Apply local overrides (e.g. from XDA 1). */
+	if (term->local_overrides != NULL)
+		tty_term_apply(term, term->local_overrides, 1);
 
 	/* Update capabilities from the option. */
 	o = options_get_only(global_options, "terminal-overrides");

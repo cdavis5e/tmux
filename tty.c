@@ -313,7 +313,7 @@ tty_start_timer_callback(__unused int fd, __unused short events, void *data)
 
 	log_debug("%s: start timer fired", c->name);
 
-	if ((tty->flags & (TTY_HAVEDA|TTY_HAVEDA2|TTY_HAVEXDA)) == 0)
+	if ((tty->flags & TTY_ALL_REQUEST_FLAGS) == 0)
 		tty_update_features(tty);
 	tty->flags |= TTY_ALL_REQUEST_FLAGS;
 
@@ -402,6 +402,8 @@ tty_send_requests(struct tty *tty)
 			tty_puts(tty, "\033[>c");
 		if (~tty->flags & TTY_HAVEXDA)
 			tty_puts(tty, "\033[>q");
+		if (~tty->flags & TTY_HAVECAP)
+			tty_puts(tty, "\033]1337;Capabilities\033\\");
 		tty_puts(tty, "\033]10;?\033\\\033]11;?\033\\");
 		tty->flags |= (TTY_WAITBG|TTY_WAITFG);
 	} else
