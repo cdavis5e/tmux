@@ -627,6 +627,7 @@ enum tty_code_code {
 	TTYC_SMOL,
 	TTYC_SMSO,
 	TTYC_SMUL,
+	TTYC_SMUL2,
 	TTYC_SMULX,
 	TTYC_SMXX,
 	TTYC_SXL,
