@@ -1522,6 +1522,7 @@ struct tty_term {
 
 	char		 acs[UCHAR_MAX + 1][2];
 
+	char		*local_overrides;
 	struct tty_code	*codes;
 
 #define TERM_256COLOURS 0x1
@@ -1601,8 +1602,9 @@ struct tty {
 #define TTY_WINSIZEQUERY 0x1000
 #define TTY_WAITFG 0x2000
 #define TTY_WAITBG 0x4000
+#define TTY_HAVECAP 0x8000 /* Extended capabilities. */
 #define TTY_ALL_REQUEST_FLAGS \
-	(TTY_HAVEDA|TTY_HAVEDA2|TTY_HAVEXDA)
+	(TTY_HAVEDA|TTY_HAVEDA2|TTY_HAVEXDA|TTY_HAVECAP)
 	int		 flags;
 
 	struct tty_term	*term;
@@ -2590,6 +2592,7 @@ void	tty_default_colours(struct grid_cell *, struct window_pane *);
 /* tty-term.c */
 extern struct tty_terms tty_terms;
 u_int		 tty_term_ncodes(void);
+void		 tty_term_add_local_override(struct tty_term *, const char *);
 void		 tty_term_apply(struct tty_term *, const char *, int);
 void		 tty_term_apply_overrides(struct tty_term *);
 struct tty_term *tty_term_create(struct tty *, char *, char **, u_int, int *,

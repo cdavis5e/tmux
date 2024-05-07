@@ -59,6 +59,8 @@ static int	tty_keys_device_attributes2(struct tty *, const char *, size_t,
 		    size_t *);
 static int	tty_keys_extended_device_attributes(struct tty *, const char *,
 		    size_t, size_t *);
+static int	tty_keys_capabilities(struct tty *, const char *, size_t,
+		    size_t *);
 
 /* A key tree entry. */
 struct tty_key {
@@ -782,6 +784,17 @@ tty_keys_next(struct tty *tty)
 
 	/* Is this an extended device attributes response? */
 	switch (tty_keys_extended_device_attributes(tty, buf, len, &size)) {
+	case 0:		/* yes */
+		key = KEYC_UNKNOWN;
+		goto complete_key;
+	case -1:	/* no, or not valid */
+		break;
+	case 1:		/* partial */
+		goto partial_key;
+	}
+
+	/* Is this an extended capabilities OSC response? */
+	switch (tty_keys_capabilities(tty, buf, len, &size)) {
 	case 0:		/* yes */
 		key = KEYC_UNKNOWN;
 		goto complete_key;
@@ -1622,6 +1635,251 @@ tty_keys_extended_device_attributes(struct tty *tty, const char *buf,
 	tty_update_features(tty);
 	tty->flags |= TTY_HAVEXDA;
 
+	return (0);
+}
+
+/* Parse capabilities and add the features they indicate. */
+static void
+tty_keys_parse_caps_string(struct tty *tty, char *tmp, u_int n)
+{
+	struct client	*c = tty->client;
+	struct tty_term	*term = tty->term;
+	int		*features = &c->term_features;
+	char		*endptr;
+	u_int		 i, fs = 0;
+	int		 m;
+
+	static const char *const tty_term_override_rgb_full =
+		"setrgbf=\\E[38::2::::%p1%d::%p2%d::%p3%dm:"
+		"setrgbb=\\E[48::2::::%p1%d::%p2%d::%p3%dm:"
+		"setaf=\\E[%?%p1%{8}%<%t3%p1%d%e%p1%{16}%<%t9%p1%{8}%-%d%e38::5::%p1%d%;m:"
+		"setab=\\E[%?%p1%{8}%<%t4%p1%d%e%p1%{16}%<%t10%p1%{8}%-%d%e48::5::%p1%d%;m";
+
+	for (i = 0; i < n; ) {
+		if (!isalnum(tmp[i]))
+			break;
+		if (!isupper(tmp[i])) {
+			i++;
+			continue;
+		}
+		switch (tmp[i++]) {
+		case 'A':
+			if (tmp[i] == 'w') {	/* AMBIGUOUS_WIDE */
+				/* Not yet supported? */
+				i++;
+			} else {
+				log_debug("%s: unknown feature %.*s", c->name,
+				    islower(tmp[i]) ? 2 : 1, &tmp[i - 1]);
+			}
+			break;
+		case 'B':			/* BRACKETED_PASTE */
+			tty_add_features(features, "bpaste", ",");
+			break;
+		case 'C':
+			if (tmp[i] == 'w') {	/* CLIPBOARD_WRITABLE */
+				tty_add_features(features, "clipboard", ",");
+				i++;
+			} else {
+				log_debug("%s: unknown feature %.*s", c->name,
+				    islower(tmp[i]) ? 2 : 1, &tmp[i - 1]);
+			}
+			break;
+		case 'F':
+			/* This feature flag is ambiguous. */
+			switch (++fs) {
+			case 1:			/* FOCUS_REPORTING */
+				tty_add_features(features, "focus", ",");
+				break;
+			case 2:			/* FILE */
+				/* Not yet supported */
+				break;
+			default:
+				log_debug("%s: unknown feature %.*s", c->name,
+				    islower(tmp[i]) ? 2 : 1, &tmp[i - 1]);
+				break;
+			}
+			break;
+		case 'G':			/* Graphic renditions */
+			switch (tmp[i]) {
+			case 'o':		/* OVERLINE */
+				tty_add_features(features, "overline", ",");
+				i++;
+				break;
+			case 's':		/* STRIKETHROUGH */
+				tty_add_features(features, "strikethrough", ",");
+				i++;
+				break;
+			default:
+				log_debug("%s: unknown feature %.*s", c->name,
+				    islower(tmp[i]) ? 2 : 1, &tmp[i - 1]);
+				break;
+			}
+			break;
+		case 'H':			/* HYPERLINKS */
+			tty_add_features(features, "hyperlinks", ",");
+			break;
+		case 'L':
+			if (tmp[i] == 'r') {	/* DECSLRM */
+				tty_add_features(features, "margins", ",");
+				i++;
+			} else {
+				log_debug("%s: unknown feature %.*s", c->name,
+				    islower(tmp[i]) ? 2 : 1, &tmp[i - 1]);
+				break;
+			}
+			break;
+		case 'M':			/* MOUSE */
+			tty_add_features(features, "mouse", ",");
+			break;
+		case 'N':
+			if (tmp[i] == 'o') {	/* NOTIFICATIONS */
+				/* Not yet supported */
+				i++;
+			} else {
+				log_debug("%s: unknown feature %.*s", c->name,
+				    islower(tmp[i]) ? 2 : 1, &tmp[i - 1]);
+				break;
+			}
+			break;
+		case 'S':
+			switch (tmp[i]) {
+			case 'c':		/* DECSCUSR */
+				m = strtoul(&tmp[i], &endptr, 10);
+				if (m > 0 && m != 4)	/* 4 = "default only" */
+					tty_add_features(features, "cstyle", ",");
+				i = endptr - tmp;
+				break;
+			case 'x':		/* SIXEL */
+#ifdef ENABLE_SIXEL
+				tty_add_features(features, "sixel", ",");
+#endif
+				i++;
+				break;
+			case 'y':		/* SYNC */
+				tty_add_features(features, "sync", ",");
+				i++;
+				break;
+			default:
+				log_debug("%s: unknown feature %.*s", c->name,
+				    islower(tmp[i]) ? 2 : 1, &tmp[i - 1]);
+				break;
+			}
+			break;
+		case 'T':
+			if (isdigit(tmp[i])) {	/* 24BIT */
+				m = strtoul(&tmp[i], &endptr, 10);
+				if (m > 0)
+					tty_add_features(features, "RGB", ",");
+				if (m & 2)	/* subparms with colons */
+					tty_term_add_local_override(
+					    term, tty_term_override_rgb_full);
+				i = endptr - tmp;
+			} else switch (tmp[i]) {
+			case 's':		/* TITLES */
+				m = strtoul(&tmp[i], &endptr, 10);
+				if (m & 2)	/* only set used here */
+					tty_add_features(features, "title", ",");
+				i = endptr - tmp;
+				break;
+			default:
+				log_debug("%s: unknown feature %.*s", c->name,
+				    islower(tmp[i]) ? 2 : 1, &tmp[i - 1]);
+				break;
+			}
+			break;
+		case 'U':
+			if (!islower(tmp[i]))	/* UNICODE_BASIC */
+				c->flags |= CLIENT_UTF8;
+			else switch (tmp[i]) {
+			case 'w':		/* UNICODE_WIDTHS */
+				m = strtoul(&tmp[i], &endptr, 10);
+				if (m > 0)
+					c->flags |= CLIENT_UTF8;
+				i = endptr - tmp;
+				break;
+			default:
+				log_debug("%s: unknown feature %.*s", c->name,
+				    islower(tmp[i]) ? 2 : 1, &tmp[i - 1]);
+				break;
+			}
+			break;
+		default:
+			log_debug("%s: unknown feature %.*s", c->name,
+			    islower(tmp[i]) ? 2 : 1, &tmp[i - 1]);
+			break;
+		}
+	}
+
+	tty_update_features(tty);
+	tty->flags |= TTY_HAVECAP;
+}
+
+/*
+ * Handle extended capability OSC report input. Returns 0 for success, -1 for
+ * failure, 1 for partial.
+ */
+static int
+tty_keys_capabilities(struct tty *tty, const char *buf, size_t len,
+    size_t *size)
+{
+	struct client	*c = tty->client;
+	u_int		 i;
+	char		 tmp[128];
+
+	*size = 0;
+	if (tty->flags & TTY_HAVECAP)
+		return (-1);
+
+	/* First bytes are always \033]1337;Capabilities=. */
+	i = 0;
+#define PARSE_CHAR(c) \
+	if (buf[i++] != c) \
+		return (-1); \
+	if (len == i) \
+		return (1)
+	PARSE_CHAR('\033');
+	PARSE_CHAR(']');
+	PARSE_CHAR('1');
+	PARSE_CHAR('3');
+	PARSE_CHAR('3');
+	PARSE_CHAR('7');
+	PARSE_CHAR(';');
+	PARSE_CHAR('C');
+	PARSE_CHAR('a');
+	PARSE_CHAR('p');
+	PARSE_CHAR('a');
+	PARSE_CHAR('b');
+	PARSE_CHAR('i');
+	PARSE_CHAR('l');
+	PARSE_CHAR('i');
+	PARSE_CHAR('t');
+	PARSE_CHAR('i');
+	PARSE_CHAR('e');
+	PARSE_CHAR('s');
+	PARSE_CHAR('=');
+#undef PARSE_CHAR
+
+	/* Copy the rest up to \033\ (ST) or \007. */
+	for (i = 0; i < (sizeof tmp) - 1; i++) {
+		if (i == len)
+			return (1);
+		if (buf[20 + i - 1] == '\033' && buf[20 + i] == '\\')
+			break;
+		if (buf[20 + i] == '\007')
+			break;
+		tmp[i] = buf[20 + i];
+	}
+	if (i == (sizeof tmp) - 1)
+		return (-1);
+	if (tmp[i - 1] == '\033')
+		tmp[i - 1] = '\0';
+	else
+		tmp[i] = '\0';
+	*size = 21 + i;
+
+	tty_keys_parse_caps_string(tty, tmp, i);
+	log_debug("%s: received capability string %.*s", c->name, (int)*size,
+	    buf);
 	return (0);
 }
 
