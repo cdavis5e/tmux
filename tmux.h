@@ -408,6 +408,7 @@ enum tty_code_code {
 	TTYC_BIN,
 	TTYC_BLINK,
 	TTYC_BOLD,
+	TTYC_C8,
 	TTYC_CIVIS,
 	TTYC_CLEAR,
 	TTYC_CLMG,

@@ -3126,7 +3126,8 @@ tty_check_fg(struct tty *tty, struct colour_palette *palette,
 	}
 
 	/* Is this an aixterm colour? */
-	if (gc->fg >= 90 && gc->fg <= 97 && colours < 16) {
+	if (gc->fg >= 90 && gc->fg <= 97 &&
+	    (colours < 16 || tty_term_has(tty->term, TTYC_C8))) {
 		gc->fg -= 90;
 		gc->attr |= GRID_ATTR_BRIGHT;
 	}

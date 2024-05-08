@@ -66,6 +66,7 @@ static const struct tty_term_code_entry tty_term_codes[] = {
 	[TTYC_BIN] = { TTYCODE_STRING, "Bin" },
 	[TTYC_BLINK] = { TTYCODE_STRING, "blink" },
 	[TTYC_BOLD] = { TTYCODE_STRING, "bold" },
+	[TTYC_C8] = { TTYCODE_FLAG, "C8" },
 	[TTYC_CIVIS] = { TTYCODE_STRING, "civis" },
 	[TTYC_CLEAR] = { TTYCODE_STRING, "clear" },
 	[TTYC_CLMG] = { TTYCODE_STRING, "Clmg" },
