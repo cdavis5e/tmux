@@ -60,6 +60,8 @@ static const struct tty_term_code_entry tty_term_codes[] = {
 	[TTYC_AM] = { TTYCODE_FLAG, "am" },
 	[TTYC_AX] = { TTYCODE_FLAG, "AX" },
 	[TTYC_BCE] = { TTYCODE_FLAG, "bce" },
+	[TTYC_BD] = { TTYCODE_STRING, "BD" },
+	[TTYC_BE] = { TTYCODE_STRING, "BE" },
 	[TTYC_BEL] = { TTYCODE_STRING, "bel" },
 	[TTYC_BIDI] = { TTYCODE_STRING, "Bidi" },
 	[TTYC_BI] = { TTYCODE_STRING, "Bi" },
@@ -107,6 +109,8 @@ static const struct tty_term_code_entry tty_term_codes[] = {
 	[TTYC_ENEKS] = { TTYCODE_STRING, "Eneks" },
 	[TTYC_ENFCS] = { TTYCODE_STRING, "Enfcs" },
 	[TTYC_ENMG] = { TTYCODE_STRING, "Enmg" },
+	[TTYC_FD] = { TTYCODE_STRING, "fd" },
+	[TTYC_FE] = { TTYCODE_STRING, "fe" },
 	[TTYC_FI] = { TTYCODE_STRING, "Fi" },
 	[TTYC_FIN] = { TTYCODE_STRING, "Fin" },
 	[TTYC_FSL] = { TTYCODE_STRING, "fsl" },
@@ -258,10 +262,14 @@ static const struct tty_term_code_entry tty_term_codes[] = {
 	[TTYC_KUP5] = { TTYCODE_STRING, "kUP5" },
 	[TTYC_KUP6] = { TTYCODE_STRING, "kUP6" },
 	[TTYC_KUP7] = { TTYCODE_STRING, "kUP7" },
+	[TTYC_KXIN] = { TTYCODE_STRING, "kxIN" },
+	[TTYC_KXOUT] = { TTYCODE_STRING, "kxOUT" },
 	[TTYC_MS] = { TTYCODE_STRING, "Ms" },
 	[TTYC_NOBR] = { TTYCODE_STRING, "Nobr" },
 	[TTYC_OL] = { TTYCODE_STRING, "ol" },
 	[TTYC_OP] = { TTYCODE_STRING, "op" },
+	[TTYC_PE] = { TTYCODE_STRING, "PE" },
+	[TTYC_PS] = { TTYCODE_STRING, "PS" },
 	[TTYC_RECT] = { TTYCODE_STRING, "Rect" },
 	[TTYC_REV] = { TTYCODE_STRING, "rev" },
 	[TTYC_RGB] = { TTYCODE_FLAG, "RGB" },
@@ -297,6 +305,7 @@ static const struct tty_term_code_entry tty_term_codes[] = {
 	[TTYC_TSL] = { TTYCODE_STRING, "tsl" },
 	[TTYC_U8] = { TTYCODE_NUMBER, "U8" },
 	[TTYC_VPA] = { TTYCODE_STRING, "vpa" },
+	[TTYC_XF] = { TTYCODE_FLAG, "XF" },
 	[TTYC_XT] = { TTYCODE_FLAG, "XT" }
 };
 
@@ -671,8 +680,26 @@ tty_term_create(struct tty *tty, char *name, char **caps, u_int ncaps,
 	s = tty_term_string(term, TTYC_CLEAR);
 	if (tty_term_flag(term, TTYC_XT) || strncmp(s, "\033[", 2) == 0) {
 		term->flags |= TERM_VT100LIKE;
-		tty_add_features(feat, "bpaste,focus,title", ",");
+		tty_add_features(feat, "title", ",");
+		if ((!tty_term_has(term, TTYC_BD) &&
+		    !tty_term_has(term, TTYC_DSBP)) ||
+		    (!tty_term_has(term, TTYC_BE) &&
+		    !tty_term_has(term, TTYC_ENBP)))
+			tty_add_features(feat, "bpaste", ",");
+		if ((!tty_term_has(term, TTYC_FD) &&
+		    !tty_term_has(term, TTYC_DSFCS)) ||
+		    (!tty_term_has(term, TTYC_FE) &&
+		    !tty_term_has(term, TTYC_ENFCS)))
+			tty_add_features(feat, "focus", ",");
 	}
+
+	/* Add focus feature if indicated by terminfo. */
+	if (tty_term_has(term, TTYC_XF) &&
+	    ((!tty_term_has(term, TTYC_FD) &&
+	    !tty_term_has(term, TTYC_DSFCS)) ||
+	    (!tty_term_has(term, TTYC_FE) &&
+	    !tty_term_has(term, TTYC_ENFCS))))
+		tty_add_features(feat, "focus", ",");
 
 	/* Add RGB feature if terminal has RGB colours. */
 	if ((tty_term_flag(term, TTYC_TC) || tty_term_has(term, TTYC_RGB)) &&
