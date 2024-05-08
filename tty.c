@@ -370,6 +370,8 @@ tty_start_tty(struct tty *tty)
 	}
 	if (tty_term_has(tty->term, TTYC_ENBP))
 		tty_putcode(tty, TTYC_ENBP);
+	else if (tty_term_has(tty->term, TTYC_BE))
+		tty_putcode(tty, TTYC_BE);
 
 	if (tty->term->flags & TERM_VT100LIKE) {
 		/* Subscribe to theme changes and request theme now. */
@@ -485,10 +487,15 @@ tty_stop_tty(struct tty *tty)
 	}
 	if (tty_term_has(tty->term, TTYC_DSBP))
 		tty_raw(tty, tty_term_string(tty->term, TTYC_DSBP));
+	else if (tty_term_has(tty->term, TTYC_BD))
+		tty_raw(tty, tty_term_string(tty->term, TTYC_BD));
 
 	if (tty->term->flags & TERM_VT100LIKE)
 		tty_raw(tty, "\033[?7727l");
-	tty_raw(tty, tty_term_string(tty->term, TTYC_DSFCS));
+	if (tty_term_has(tty->term, TTYC_DSFCS))
+		tty_raw(tty, tty_term_string(tty->term, TTYC_DSFCS));
+	else if (tty_term_has(tty->term, TTYC_FD))
+		tty_raw(tty, tty_term_string(tty->term, TTYC_FD));
 	tty_raw(tty, tty_term_string(tty->term, TTYC_DSEKS));
 
 	if (tty_use_margin(tty))
@@ -539,8 +546,12 @@ tty_update_features(struct tty *tty)
 		tty_putcode(tty, TTYC_ENMG);
 	if (options_get_number(global_options, "extended-keys"))
 		tty_puts(tty, tty_term_string(tty->term, TTYC_ENEKS));
-	if (options_get_number(global_options, "focus-events"))
-		tty_puts(tty, tty_term_string(tty->term, TTYC_ENFCS));
+	if (options_get_number(global_options, "focus-events")) {
+		if (tty_term_has(tty->term, TTYC_ENFCS))
+			tty_puts(tty, tty_term_string(tty->term, TTYC_ENFCS));
+		else if (tty_term_has(tty->term, TTYC_FE))
+			tty_puts(tty, tty_term_string(tty->term, TTYC_FE));
+	}
 	if (tty->term->flags & TERM_VT100LIKE)
 		tty_puts(tty, "\033[?7727h");
 

@@ -428,6 +428,14 @@ static const struct tty_default_key_code tty_default_code_keys[] = {
 	{ TTYC_KUP5, KEYC_UP|KEYC_CTRL },
 	{ TTYC_KUP6, KEYC_UP|KEYC_SHIFT|KEYC_CTRL },
 	{ TTYC_KUP7, KEYC_UP|KEYC_META|KEYC_IMPLIED_META|KEYC_CTRL },
+
+	/* Focus tracking. */
+	{ TTYC_KXIN, KEYC_FOCUS_IN },
+	{ TTYC_KXOUT, KEYC_FOCUS_OUT },
+
+	/* Paste keys. */
+	{ TTYC_PS, KEYC_PASTE_START },
+	{ TTYC_PE, KEYC_PASTE_END }
 };
 
 /* Add key to tree. */
