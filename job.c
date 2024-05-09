@@ -282,6 +282,8 @@ job_free(struct job *job)
 		bufferevent_free(job->event);
 	if (job->fd != -1)
 		close(job->fd);
+	if (job->pid != -1)
+		kill(job->pid, SIGHUP);
 
 	free(job);
 }
