@@ -200,22 +200,41 @@ grid_adjust_lines(struct grid *gd, u_int lines)
 
 /* Copy default into a cell. */
 static void
-grid_clear_cell(struct grid *gd, u_int px, u_int py, u_int bg)
+grid_clear_cell(struct grid *gd, u_int px, u_int py, u_int bg, int sel)
 {
 	struct grid_line	*gl = &gd->linedata[py];
 	struct grid_cell_entry	*gce = &gl->celldata[px];
 	struct grid_extd_entry	*gee;
 
-	memcpy(gce, &grid_cleared_entry, sizeof *gce);
-	if (bg != 8) {
-		if (bg & COLOUR_FLAG_RGB) {
-			grid_get_extended_cell(gl, gce, gce->flags);
-			gee = grid_extended_cell(gl, gce, &grid_cleared_cell);
-			gee->bg = bg;
+	if (sel && (gce->flags & GRID_FLAG_EXTENDED)) {
+		gee = &gl->extddata[gce->offset];
+		if (gee->attr & GRID_ATTR_PROTECTED)
+			return;
+	}
+
+	if (sel) {
+		/*
+		 * Only reset the character to blank; do NOT reset graphic
+		 * renditions or attributes.
+		 */
+		if (gce->flags & GRID_FLAG_EXTENDED) {
+			gee->data = grid_cleared_entry.data.data;
 		} else {
-			if (bg & COLOUR_FLAG_256)
-				gce->flags |= GRID_FLAG_BG256;
-			gce->data.bg = bg;
+			gce->data.data = grid_cleared_entry.data.data;
+		}
+	} else {
+		memcpy(gce, &grid_cleared_entry, sizeof *gce);
+		if (bg != 8) {
+			if (bg & COLOUR_FLAG_RGB) {
+				grid_get_extended_cell(gl, gce, gce->flags);
+				gee = grid_extended_cell(
+				    gl, gce, &grid_cleared_cell);
+				gee->bg = bg;
+			} else {
+				if (bg & COLOUR_FLAG_256)
+					gce->flags |= GRID_FLAG_BG256;
+				gce->data.bg = bg;
+			}
 		}
 	}
 }
@@ -441,6 +460,13 @@ grid_clear_history(struct grid *gd)
 	    sizeof *gd->linedata);
 }
 
+/* Selectively clear non-protected cells from the history. */
+void
+grid_sel_clear_history(struct grid *gd)
+{
+	grid_clear(gd, 0, 0, gd->sx, gd->hsize, 0, 1);
+}
+
 /* Scroll a region up, moving the top line into the history. */
 void
 grid_scroll_history_region(struct grid *gd, u_int upper, u_int lower, u_int bg)
@@ -495,7 +521,7 @@ grid_expand_line(struct grid *gd, u_int py, u_int sx, u_int bg)
 
 	gl->celldata = xreallocarray(gl->celldata, sx, sizeof *gl->celldata);
 	for (xx = gl->cellsize; xx < sx; xx++)
-		grid_clear_cell(gd, xx, py, bg);
+		grid_clear_cell(gd, xx, py, bg, 0);
 	gl->cellsize = sx;
 }
 
@@ -629,7 +655,8 @@ grid_set_cells(struct grid *gd, u_int px, u_int py, const struct grid_cell *gc,
 
 /* Clear area. */
 void
-grid_clear(struct grid *gd, u_int px, u_int py, u_int nx, u_int ny, u_int bg)
+grid_clear(struct grid *gd, u_int px, u_int py, u_int nx, u_int ny, u_int bg,
+    int sel)
 {
 	struct grid_line	*gl;
 	u_int			 xx, yy, ox, sx;
@@ -637,7 +664,7 @@ grid_clear(struct grid *gd, u_int px, u_int py, u_int nx, u_int ny, u_int bg)
 	if (nx == 0 || ny == 0)
 		return;
 
-	if (px == 0 && nx == gd->sx) {
+	if (!sel && px == 0 && nx == gd->sx) {
 		grid_clear_lines(gd, py, ny, bg);
 		return;
 	}
@@ -663,7 +690,7 @@ grid_clear(struct grid *gd, u_int px, u_int py, u_int nx, u_int ny, u_int bg)
 
 		grid_expand_line(gd, yy, px + ox, 8); /* default bg first */
 		for (xx = px; xx < px + ox; xx++)
-			grid_clear_cell(gd, xx, yy, bg);
+			grid_clear_cell(gd, xx, yy, bg, sel);
 	}
 }
 
@@ -807,7 +834,7 @@ grid_move_rect(struct grid *gd, u_int dx, u_int dy, u_int px, u_int py,
 			if (fy >= dy && fy < dy + ny && xx >= dx &&
 			    xx < dx + nx)
 				continue;
-			grid_clear_cell(gd, xx, fy, bg);
+			grid_clear_cell(gd, xx, fy, bg, 0);
 		}
 		if (pl != dl && (pl->flags & GRID_LINE_EXTENDED))
 			grid_compact_line(pl);

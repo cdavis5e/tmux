@@ -4344,9 +4344,14 @@ Supports the OSC 7 working directory extension.
 .It overline
 Supports the overline SGR attribute.
 .It rectfill
-Supports the DECFRA rectangle fill escape sequence.
+Supports the DEC rectanglular editing extension, including the DECFRA 
+rectangular fill and DECSERA selective rectangular erase control sequences.
 .It RGB
 Supports RGB colour with the SGR escape sequences.
+.It selerase
+Supports the DEC selective erasure extension, including the DECSCA set
+character attribute, DECSED selective erase display, and DECSEL selective
+erase line control sequences.
 .It sixel
 Supports SIXEL graphics.
 .It strikethrough
@@ -7576,6 +7581,26 @@ Tell
 that the terminal supports rectangle operations.
 .It Em \&Smol
 Enable the overline attribute.
+.It Em \&Smpr , \&Rmpr
+Enable or disable, respectively, protection from selective erasure.
+These are set automatically if the terminal reports it is
+.Em VT220
+compatible.
+.It Em \&Sed , \&Sed1 , \&Sel , \&Sel1
+Selectively clear the entire display or the current line.
+Only characters that have not been marked as protected with
+.Em Smpr
+are erased.
+These otherwise work similarly to the standard
+.Em ed , el ,
+and
+.Em el1
+capabilities.
+.Em Sed1
+clears from the beginning of the display to the cursor.
+These are set automatically if the terminal reports it is
+.Em VT220
+compatible.
 .It Em \&Smulx
 Set a styled underscore.
 The single parameter is one of: 0 for no underscore, 1 for normal

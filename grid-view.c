@@ -76,7 +76,7 @@ grid_view_clear_history(struct grid *gd, u_int bg)
 			last = yy + 1;
 	}
 	if (last == 0) {
-		grid_view_clear(gd, 0, 0, gd->sx, gd->sy, bg);
+		grid_view_clear(gd, 0, 0, gd->sx, gd->sy, bg, 0);
 		return;
 	}
 
@@ -86,19 +86,19 @@ grid_view_clear_history(struct grid *gd, u_int bg)
 		grid_scroll_history(gd, bg);
 	}
 	if (last < gd->sy)
-		grid_view_clear(gd, 0, 0, gd->sx, gd->sy - last, bg);
+		grid_view_clear(gd, 0, 0, gd->sx, gd->sy - last, bg, 0);
 	gd->hscrolled = 0;
 }
 
 /* Clear area. */
 void
 grid_view_clear(struct grid *gd, u_int px, u_int py, u_int nx, u_int ny,
-    u_int bg)
+    u_int bg, int sel)
 {
 	px = grid_view_x(gd, px);
 	py = grid_view_y(gd, py);
 
-	grid_clear(gd, px, py, nx, ny, bg);
+	grid_clear(gd, px, py, nx, ny, bg, sel);
 }
 
 /* Scroll region up. */
@@ -196,7 +196,7 @@ grid_view_insert_lines_region(struct grid *gd, u_int rlower, u_int py,
 	nx = rright - rleft + 1;
 	ny2 = rlower + 1 - py - ny;
 	grid_move_rect(gd, rleft, rlower + 1 - ny2, rleft, py, nx, ny2, bg);
-	grid_clear(gd, rleft, py + ny2, nx, ny - ny2, bg);
+	grid_clear(gd, rleft, py + ny2, nx, ny - ny2, bg, 0);
 }
 
 /* Delete lines. */
@@ -210,7 +210,7 @@ grid_view_delete_lines(struct grid *gd, u_int py, u_int ny, u_int bg)
 	sy = grid_view_y(gd, gd->sy);
 
 	grid_move_lines(gd, py, py + ny, sy - py - ny, bg);
-	grid_clear(gd, 0, sy - ny, gd->sx, ny, bg);
+	grid_clear(gd, 0, sy - ny, gd->sx, ny, bg, 0);
 }
 
 /* Delete lines inside scroll region. */
@@ -229,7 +229,7 @@ grid_view_delete_lines_region(struct grid *gd, u_int rlower, u_int py,
 	ny2 = rlower + 1 - py - ny;
 	nx = rright - rleft + 1;
 	grid_move_rect(gd, rleft, py, rleft, py + ny, nx, ny2, bg);
-	grid_clear(gd, rleft, py + ny2, nx, ny - ny2, bg);
+	grid_clear(gd, rleft, py + ny2, nx, ny - ny2, bg, 0);
 }
 
 /* Insert characters. */
@@ -244,7 +244,7 @@ grid_view_insert_cells(struct grid *gd, u_int px, u_int py, u_int nx, u_int bg)
 	sx = grid_view_x(gd, gd->sx);
 
 	if (px >= sx - 1)
-		grid_clear(gd, px, py, 1, 1, bg);
+		grid_clear(gd, px, py, 1, 1, bg, 0);
 	else
 		grid_move_cells(gd, px + nx, px, py, sx - px - nx, bg);
 }
@@ -261,7 +261,7 @@ grid_view_delete_cells(struct grid *gd, u_int px, u_int py, u_int nx, u_int bg)
 	sx = grid_view_x(gd, gd->sx);
 
 	grid_move_cells(gd, px, px + nx, py, sx - px - nx, bg);
-	grid_clear(gd, sx - nx, py, nx, 1, bg);
+	grid_clear(gd, sx - nx, py, nx, 1, bg, 0);
 }
 
 /* Insert columns in region. */
@@ -280,7 +280,7 @@ grid_view_insert_columns(struct grid *gd, u_int rright, u_int px, u_int nx,
 	nx2 = rright + 1 - px - nx;
 	ny = rlower - rupper + 1;
 	grid_move_rect(gd, rright + 1 - nx2, rupper, px, rupper, nx2, ny, bg);
-	grid_clear(gd, px + nx2, rupper, nx - nx2, ny, bg);
+	grid_clear(gd, px + nx2, rupper, nx - nx2, ny, bg, 0);
 }
 
 /* Delete columns inside scroll region. */
@@ -299,7 +299,7 @@ grid_view_delete_columns(struct grid *gd, u_int rright, u_int px, u_int nx,
 	nx2 = rright + 1 - px - nx;
 	ny = rlower - rupper + 1;
 	grid_move_rect(gd, px, rupper, px + nx, rupper, nx2, ny, bg);
-	grid_clear(gd, px + nx2, rupper, nx - nx2, ny, bg);
+	grid_clear(gd, px + nx2, rupper, nx - nx2, ny, bg, 0);
 }
 
 /* Convert cells into a string. */

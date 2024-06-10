@@ -232,7 +232,7 @@ window_clock_draw_screen(struct window_mode_entry *wme)
 	} else
 		strftime(tim, sizeof tim, "%H:%M", tm);
 
-	screen_write_clearscreen(&ctx, 8);
+	screen_write_clearscreen(&ctx, 8, 0);
 
 	if (screen_size_x(s) < 6 * strlen(tim) || screen_size_y(s) < 6) {
 		if (screen_size_x(s) >= strlen(tim) && screen_size_y(s) != 0) {

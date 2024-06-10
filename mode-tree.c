@@ -717,7 +717,7 @@ mode_tree_draw(struct mode_tree_data *mtd)
 	h = mtd->height;
 
 	screen_write_start(&ctx, s);
-	screen_write_clearscreen(&ctx, 8);
+	screen_write_clearscreen(&ctx, 8, 0);
 
 	keylen = 0;
 	for (i = 0; i < mtd->line_size; i++) {
@@ -801,14 +801,14 @@ mode_tree_draw(struct mode_tree_data *mtd)
 		}
 
 		if (i != mtd->current) {
-			screen_write_clearendofline(&ctx, 8);
+			screen_write_clearendofline(&ctx, 8, 0);
 			screen_write_nputs(&ctx, w, &gc0, "%s", text);
 			if (mti->text != NULL) {
 				format_draw(&ctx, &gc0, w - width, mti->text,
 				    NULL, 0);
 			}
 		} else {
-			screen_write_clearendofline(&ctx, gc.bg);
+			screen_write_clearendofline(&ctx, gc.bg, 0);
 			screen_write_nputs(&ctx, w, &gc, "%s", text);
 			if (mti->text != NULL) {
 				format_draw(&ctx, &gc, w - width, mti->text,

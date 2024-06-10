@@ -204,7 +204,7 @@ menu_draw_cb(struct client *c, void *data,
 	u_int			 i, px = md->px, py = md->py;
 
 	screen_write_start(&ctx, s);
-	screen_write_clearscreen(&ctx, 8);
+	screen_write_clearscreen(&ctx, 8, 0);
 
 	if (md->border_lines != BOX_LINES_NONE) {
 		screen_write_box(&ctx, menu->width + 4, menu->count + 2,

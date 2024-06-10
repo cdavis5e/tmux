@@ -221,7 +221,7 @@ popup_draw_cb(struct client *c, void *data, struct screen_redraw_ctx *rctx)
 
 	screen_init(&s, pd->sx, pd->sy, 0);
 	screen_write_start(&ctx, &s);
-	screen_write_clearscreen(&ctx, 8);
+	screen_write_clearscreen(&ctx, 8, 0);
 
 	if (pd->border_lines == BOX_LINES_NONE) {
 		screen_write_cursormove(&ctx, 0, 0, 0);
