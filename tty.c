@@ -1235,6 +1235,128 @@ tty_clear_pane_line(struct tty *tty, const struct tty_ctx *ctx, u_int py,
 		tty_clear_line(tty, &ctx->defaults, ry, x, rx, bg);
 }
 
+/* Selectively clear a portion of a line. */
+static void
+tty_sel_clear_range(struct tty *tty, struct grid *gd,
+    void (*clear_chars)(struct tty *, u_int), u_int py, u_int px,
+    u_int ry, u_int x, u_int rx)
+{
+	struct grid_line	*gl = grid_get_line(gd, gd->hsize + py);
+	struct grid_cell_entry	*gce;
+	struct grid_extd_entry	*gee;
+	struct overlay_ranges	 r;
+	u_int			 i, j, n;
+
+	tty_check_overlay_range(tty, x, ry, rx, &r);
+	for (i = 0; i < OVERLAY_MAX_RANGES; i++) {
+		if (r.nx[i] == 0)
+			continue;
+		n = 0;
+		for (j = 0; j < r.nx[i]; j++) {
+			if (px + r.px[i] - x + j >= gl->cellsize) {
+				if (n == 0)
+					tty_cursor(tty, r.px[i] + j, ry);
+				n = r.nx[i] - j;
+				break;
+			}
+			gce = &gl->celldata[px + r.px[i] - x + j];
+			if (gce->flags & GRID_FLAG_EXTENDED) {
+				gee = &gl->extddata[gce->offset];
+				if (gee->attr & GRID_ATTR_PROTECTED) {
+					if (n > 0) {
+						clear_chars(tty, n);
+						n = 0;
+					}
+					continue;
+				}
+			}
+			if (n == 0)
+				tty_cursor(tty, r.px[i] + j, ry);
+			++n;
+		}
+		if (n > 0)
+			clear_chars(tty, n);
+	}
+}
+
+/* Callback for tty_sel_clear_range() that uses ECH. */
+static void
+tty_sel_clear_ech(struct tty *tty, u_int n)
+{
+	tty_putcode_i(tty, TTYC_ECH, n);
+}
+
+/* Selectively clear a line, adjusting to visible part of pane. */
+static void
+tty_sel_clear_pane_line(struct tty *tty, const struct tty_ctx *ctx, u_int py,
+    u_int px, u_int nx, u_int bg)
+{
+	struct client		*c = tty->client;
+	const struct grid_cell	*defaults = &ctx->defaults;
+	u_int			 i, x, rx, ry;
+
+	log_debug("%s: %s, %u at %u,%u", __func__, c->name, nx, px, py);
+
+	if (!tty_clamp_line(tty, ctx, px, py, nx, &i, &x, &rx, &ry))
+		return;
+
+	/* Nothing to clear. */
+	if (rx == 0)
+		return;
+
+	/*
+	 * If no extended chars, then there couldn't possibly be any protected
+	 * chars. Fall back to normal clear.
+	 */
+	if (!(grid_get_line(ctx->s->grid, ctx->s->grid->hsize + py)->flags &
+	    GRID_LINE_EXTENDED)) {
+		tty_clear_pane_line(tty, ctx, py, px, nx, bg);
+		return;
+	}
+
+	/* If genuine BCE is available, can try escape sequences. */
+	if (!tty_fake_bce(tty, defaults, bg)) {
+		/*
+		 * Only use selective erasure if the protection attribute is
+		 * supported.
+		 */
+		if (c->overlay_check == NULL &&
+		    tty_term_has(tty->term, TTYC_SMPR)) {
+			/* Off the end of the line; use Sel if available. */
+			if (x + rx >= tty->sx &&
+			    tty_term_has(tty->term, TTYC_SEL)) {
+				tty_cursor(tty, x, ry);
+				tty_putcode(tty, TTYC_SEL);
+				return;
+			}
+
+			/* At the start of the line. Use Sel1. */
+			if (x == 0 && tty_term_has(tty->term, TTYC_SEL1)) {
+				tty_cursor(tty, x + rx - 1, ry);
+				tty_putcode(tty, TTYC_SEL1);
+				return;
+			}
+		}
+
+		/*
+		 * Section of line. Use ECH if possible. This is complicated
+		 * by the need to skip protected chars.
+		 */
+		if (tty_term_has(tty->term, TTYC_ECH)) {
+			tty_sel_clear_range(tty, ctx->s->grid,
+			    tty_sel_clear_ech, py, px, ry, x, rx);
+			return;
+		}
+	}
+
+	/*
+	 * Couldn't use an escape sequence, use spaces. Clear only the visible
+	 * bit if there is an overlay.
+	 */
+	tty_sel_clear_range(tty, ctx->s->grid, tty_repeat_space,
+	    py, px, ry, x, rx);
+}
+
 /* Clamp area position to visible part of pane. */
 static int
 tty_clamp_area(struct tty *tty, const struct tty_ctx *ctx, u_int px, u_int py,
@@ -1324,13 +1446,9 @@ tty_clear_area(struct tty *tty, const struct grid_cell *defaults, u_int py,
 			return;
 		}
 
-		/*
-		 * On VT420 compatible terminals we can use DECFRA if the
-		 * background colour isn't default (because it doesn't work
-		 * after SGR 0).
-		 */
-		if ((tty->term->flags & TERM_DECFRA) && !COLOUR_DEFAULT(bg)) {
-			xsnprintf(tmp, sizeof tmp, "\033[32;%u;%u;%u;%u$x",
+		/* On VT420 compatible terminals we can use DECERA. */
+		if ((tty->term->flags & TERM_DECFRA)) {
+			xsnprintf(tmp, sizeof tmp, "\033[%u;%u;%u;%u$z",
 			    py + 1, px + 1, py + ny, px + nx);
 			tty_puts(tty, tmp);
 			return;
@@ -1364,6 +1482,20 @@ tty_clear_area(struct tty *tty, const struct grid_cell *defaults, u_int py,
 		}
 	}
 
+	/*
+	 * On VT420 compatible terminals we can use DECFRA if the
+	 * background colour isn't default (because it doesn't work
+	 * after SGR 0).
+	 */
+	if (c->overlay_check == NULL &&
+	    (tty->term->flags & TERM_DECFRA) &&
+	    !COLOUR_DEFAULT(bg)) {
+		xsnprintf(tmp, sizeof tmp, "\033[32;%u;%u;%u;%u$x",
+		    py + 1, px + 1, py + ny, px + nx);
+		tty_puts(tty, tmp);
+		return;
+	}
+
 	/* Couldn't use an escape sequence, loop over the lines. */
 	for (yy = py; yy < py + ny; yy++)
 		tty_clear_line(tty, defaults, yy, px, nx, bg);
@@ -1378,6 +1510,61 @@ tty_clear_pane_area(struct tty *tty, const struct tty_ctx *ctx, u_int py,
 
 	if (tty_clamp_area(tty, ctx, px, py, nx, ny, &i, &j, &x, &y, &rx, &ry))
 		tty_clear_area(tty, &ctx->defaults, y, ry, x, rx, bg);
+}
+
+/* Selectively clear an area in a pane. */
+static void
+tty_sel_clear_pane_area(struct tty *tty, const struct tty_ctx *ctx, u_int py,
+    u_int ny, u_int px, u_int nx, u_int bg)
+{
+	struct client		*c = tty->client;
+	const struct grid_cell	*defaults = &ctx->defaults;
+	u_int			 yy, i, j, x, y, rx, ry;
+	char			 tmp[64];
+
+	log_debug("%s: %s, %u,%u at %u,%u", __func__, c->name, nx, ny, px, py);
+
+	if (!tty_clamp_area(tty, ctx, px, py, nx, ny, &i, &j, &x, &y, &rx, &ry))
+		return;
+
+	/* Nothing to clear. */
+	if (rx == 0 || ry == 0)
+		return;
+
+	/* If genuine BCE is available, can try escape sequences. */
+	if (c->overlay_check == NULL && !tty_fake_bce(tty, defaults, bg)) {
+		/* Use SED if clearing off the bottom of the terminal. */
+		if (x == 0 &&
+		    x + rx >= tty->sx &&
+		    y + ry >= tty->sy &&
+		    tty_term_has(tty->term, TTYC_SED)) {
+			tty_cursor(tty, 0, y);
+			tty_putcode(tty, TTYC_SED);
+			return;
+		}
+
+		/* When clearing from the top, use SED1. */
+		if (x == 0 &&
+		    y == 0 &&
+		    x + rx >= tty->sx &&
+		    tty_term_has(tty->term, TTYC_SED1)) {
+			tty_cursor(tty, x + rx, y + ry);
+			tty_putcode(tty, TTYC_SED1);
+			return;
+		}
+
+		/* On VT420 compatible terminals we can use DECSERA. */
+		if ((tty->term->flags & TERM_DECFRA)) {
+			xsnprintf(tmp, sizeof tmp, "\033[%u;%u;%u;%u${",
+			    y + 1, x + 1, y + ry, x + rx);
+			tty_puts(tty, tmp);
+			return;
+		}
+	}
+
+	/* Couldn't use an escape sequence, loop over the lines. */
+	for (yy = py; yy < py + ny; yy++)
+		tty_sel_clear_pane_line(tty, ctx, yy, px, nx, bg);
 }
 
 static void
@@ -1938,6 +2125,35 @@ tty_cmd_clearstartofline(struct tty *tty, const struct tty_ctx *ctx)
 }
 
 void
+tty_cmd_selclearline(struct tty *tty, const struct tty_ctx *ctx)
+{
+	tty_default_attributes(tty, &ctx->defaults, ctx->palette, ctx->bg,
+	    ctx->s->hyperlinks);
+
+	tty_sel_clear_pane_line(tty, ctx, ctx->ocy, 0, ctx->sx, ctx->bg);
+}
+
+void
+tty_cmd_selclearendofline(struct tty *tty, const struct tty_ctx *ctx)
+{
+	u_int	nx = ctx->sx - ctx->ocx;
+
+	tty_default_attributes(tty, &ctx->defaults, ctx->palette, ctx->bg,
+	    ctx->s->hyperlinks);
+
+	tty_sel_clear_pane_line(tty, ctx, ctx->ocy, ctx->ocx, nx, ctx->bg);
+}
+
+void
+tty_cmd_selclearstartofline(struct tty *tty, const struct tty_ctx *ctx)
+{
+	tty_default_attributes(tty, &ctx->defaults, ctx->palette, ctx->bg,
+	    ctx->s->hyperlinks);
+
+	tty_sel_clear_pane_line(tty, ctx, ctx->ocy, 0, ctx->ocx + 1, ctx->bg);
+}
+
+void
 tty_cmd_insertcolumn(struct tty *tty, const struct tty_ctx *ctx)
 {
 	struct client	*c = tty->client;
@@ -2351,6 +2567,75 @@ tty_cmd_clearscreen(struct tty *tty, const struct tty_ctx *ctx)
 }
 
 void
+tty_cmd_selclearendofscreen(struct tty *tty, const struct tty_ctx *ctx)
+{
+	u_int	px, py, nx, ny;
+
+	tty_default_attributes(tty, &ctx->defaults, ctx->palette, ctx->bg,
+	    ctx->s->hyperlinks);
+
+	tty_region_pane(tty, ctx, 0, ctx->sy - 1);
+	tty_margin_off(tty);
+
+	px = 0;
+	nx = ctx->sx;
+	py = ctx->ocy + 1;
+	ny = ctx->sy - ctx->ocy - 1;
+
+	tty_sel_clear_pane_area(tty, ctx, py, ny, px, nx, ctx->bg);
+
+	px = ctx->ocx;
+	nx = ctx->sx - ctx->ocx;
+	py = ctx->ocy;
+
+	tty_sel_clear_pane_line(tty, ctx, py, px, nx, ctx->bg);
+}
+
+void
+tty_cmd_selclearstartofscreen(struct tty *tty, const struct tty_ctx *ctx)
+{
+	u_int	px, py, nx, ny;
+
+	tty_default_attributes(tty, &ctx->defaults, ctx->palette, ctx->bg,
+	    ctx->s->hyperlinks);
+
+	tty_region_pane(tty, ctx, 0, ctx->sy - 1);
+	tty_margin_off(tty);
+
+	px = 0;
+	nx = ctx->sx;
+	py = 0;
+	ny = ctx->ocy;
+
+	tty_sel_clear_pane_area(tty, ctx, py, ny, px, nx, ctx->bg);
+
+	px = 0;
+	nx = ctx->ocx + 1;
+	py = ctx->ocy;
+
+	tty_sel_clear_pane_line(tty, ctx, py, px, nx, ctx->bg);
+}
+
+void
+tty_cmd_selclearscreen(struct tty *tty, const struct tty_ctx *ctx)
+{
+	u_int	px, py, nx, ny;
+
+	tty_default_attributes(tty, &ctx->defaults, ctx->palette, ctx->bg,
+	    ctx->s->hyperlinks);
+
+	tty_region_pane(tty, ctx, 0, ctx->sy - 1);
+	tty_margin_off(tty);
+
+	px = 0;
+	nx = ctx->sx;
+	py = 0;
+	ny = ctx->sy;
+
+	tty_sel_clear_pane_area(tty, ctx, py, ny, px, nx, ctx->bg);
+}
+
+void
 tty_cmd_alignmenttest(struct tty *tty, const struct tty_ctx *ctx)
 {
 	u_int	i, j;
@@ -2611,6 +2896,8 @@ tty_reset(struct tty *tty)
 		if ((gc->attr & GRID_ATTR_CHARSET) && tty_acs_needed(tty))
 			tty_putcode(tty, TTYC_RMACS);
 		tty_putcode(tty, TTYC_SGR0);
+		if (tty_term_has(tty->term, TTYC_RMPR))
+			tty_putcode(tty, TTYC_RMPR);
 		memcpy(gc, &grid_default_cell, sizeof *gc);
 	}
 	memcpy(&tty->last_cell, &grid_default_cell, sizeof tty->last_cell);
@@ -2939,7 +3226,7 @@ tty_attributes(struct tty *tty, const struct grid_cell *gc,
 	    gc2.fg == tty->last_cell.fg &&
 	    gc2.bg == tty->last_cell.bg &&
 	    gc2.us == tty->last_cell.us &&
-		gc2.link == tty->last_cell.link)
+	    gc2.link == tty->last_cell.link)
 		return;
 
 	/*
@@ -2968,6 +3255,13 @@ tty_attributes(struct tty *tty, const struct grid_cell *gc,
 	 */
 	if ((tc->attr & ~gc2.attr) || (tc->us != gc2.us && gc2.us == 0))
 		tty_reset(tty);
+
+	/* Set character protection attribute, if supported. */
+	if ((gc2.attr & GRID_ATTR_PROTECTED) &&
+	    tty_term_has(tty->term, TTYC_SMPR) &&
+	    tty_term_has(tty->term, TTYC_RMPR)) {
+		tty_putcode(tty, TTYC_SMPR);
+	}
 
 	/*
 	 * Set the colours. This may call tty_reset() (so it comes next) and

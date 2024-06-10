@@ -269,8 +269,11 @@ enum input_csi_type {
 	INPUT_CSI_DECRQM_PRIVATE,
 	INPUT_CSI_DECRQPSR,
 	INPUT_CSI_DECRQTSR,
+	INPUT_CSI_DECSCA,
 	INPUT_CSI_DECSCL,
 	INPUT_CSI_DECSCUSR,
+	INPUT_CSI_DECSED,
+	INPUT_CSI_DECSEL,
 	INPUT_CSI_DECSTBM,
 	INPUT_CSI_DECSTR,
 	INPUT_CSI_DL,
@@ -318,7 +321,9 @@ static const struct input_table_entry input_csi_table[] = {
 	{ 'H', "",   INPUT_CSI_CUP },
 	{ 'I', "",   INPUT_CSI_CHT },
 	{ 'J', "",   INPUT_CSI_ED },
+	{ 'J', "?",  INPUT_CSI_DECSED },
 	{ 'K', "",   INPUT_CSI_EL },
+	{ 'K', "?",  INPUT_CSI_DECSEL },
 	{ 'L', "",   INPUT_CSI_IL },
 	{ 'M', "",   INPUT_CSI_DL },
 	{ 'P', "",   INPUT_CSI_DCH },
@@ -352,6 +357,7 @@ static const struct input_table_entry input_csi_table[] = {
 	{ 'p', "$",  INPUT_CSI_DECRQM },
 	{ 'p', "?$", INPUT_CSI_DECRQM_PRIVATE },
 	{ 'q', " ",  INPUT_CSI_DECSCUSR },
+	{ 'q', "\"", INPUT_CSI_DECSCA },
 	{ 'q', ">",  INPUT_CSI_XDA },
 	{ 'r', "",   INPUT_CSI_DECSTBM },
 	{ 's', "",   INPUT_CSI_SCP_DECSLRM },
@@ -1733,13 +1739,13 @@ input_csi_dispatch(struct input_ctx *ictx)
 				break;
 			case TERM_VT241:
 #ifdef ENABLE_SIXEL
-				input_reply(ictx, "\033[?62;1;2;4;16;17;21;22c");
+				input_reply(ictx, "\033[?62;1;2;4;6;16;17;21;22c");
 				break;
 #else
 				/* FALLTHROUGH */
 #endif
 			case TERM_VT220:
-				input_reply(ictx, "\033[?62;1;2;16;17;21;22c");
+				input_reply(ictx, "\033[?62;1;2;6;16;17;21;22c");
 				break;
 			}
 			break;
@@ -1815,17 +1821,21 @@ input_csi_dispatch(struct input_ctx *ictx)
 		}
 		break;
 	case INPUT_CSI_ED:
-		switch (input_get(ictx, 0, 0, 0)) {
+	case INPUT_CSI_DECSED:
+		m = entry->type == INPUT_CSI_DECSED;
+		if (m && ictx->term_level < TERM_VT220)
+			break;
+		switch ((n = input_get(ictx, 0, 0, 0))) {
 		case -1:
 			break;
 		case 0:
-			screen_write_clearendofscreen(sctx, bg);
+			screen_write_clearendofscreen(sctx, bg, m);
 			break;
 		case 1:
-			screen_write_clearstartofscreen(sctx, bg);
+			screen_write_clearstartofscreen(sctx, bg, m);
 			break;
 		case 2:
-			screen_write_clearscreen(sctx, bg);
+			screen_write_clearscreen(sctx, bg, m);
 			break;
 		case 3:
 			if (input_get(ictx, 1, 0, 0) == 0) {
@@ -1833,29 +1843,33 @@ input_csi_dispatch(struct input_ctx *ictx)
 				 * Linux console extension to clear history
 				 * (for example before locking the screen).
 				 */
-				screen_write_clearhistory(sctx);
+				screen_write_clearhistory(sctx, m);
 			}
 			break;
 		default:
-			log_debug("%s: unknown '%c'", __func__, ictx->ch);
+			log_debug("%s: unknown erase display %d", __func__, n);
 			break;
 		}
 		break;
 	case INPUT_CSI_EL:
-		switch (input_get(ictx, 0, 0, 0)) {
+	case INPUT_CSI_DECSEL:
+		m = entry->type == INPUT_CSI_DECSEL;
+		if (m && ictx->term_level < TERM_VT220)
+			break;
+		switch ((n = input_get(ictx, 0, 0, 0))) {
 		case -1:
 			break;
 		case 0:
-			screen_write_clearendofline(sctx, bg);
+			screen_write_clearendofline(sctx, bg, m);
 			break;
 		case 1:
-			screen_write_clearstartofline(sctx, bg);
+			screen_write_clearstartofline(sctx, bg, m);
 			break;
 		case 2:
-			screen_write_clearline(sctx, bg);
+			screen_write_clearline(sctx, bg, m);
 			break;
 		default:
-			log_debug("%s: unknown '%c'", __func__, ictx->ch);
+			log_debug("%s: unknown erase line %d", __func__, n);
 			break;
 		}
 		break;
@@ -2047,6 +2061,24 @@ input_csi_dispatch(struct input_ctx *ictx)
 		if (ictx->term_level >= TERM_VT220)
 			input_soft_reset(ictx);
 		break;
+	case INPUT_CSI_DECSCA:
+		if (ictx->term_level < TERM_VT220)
+			break;
+		switch ((n = input_get(ictx, 0, 0, 0))) {
+		case -1:
+			break;
+		case 0:
+		case 2:
+			ictx->cell.cell.attr &= ~GRID_ATTR_PROTECTED;
+			break;
+		case 1:
+			ictx->cell.cell.attr |= GRID_ATTR_PROTECTED;
+			break;
+		default:
+			log_debug("%s: unknown DECSCA %d", __func__, n);
+			break;
+		}
+		break;
 
 	}
 
@@ -2098,7 +2130,7 @@ input_csi_dispatch_rm_private(struct input_ctx *ictx)
 			break;
 		case 3:		/* DECCOLM */
 			screen_write_cursormove(sctx, 0, 0, 1);
-			screen_write_clearscreen(sctx, gc->bg);
+			screen_write_clearscreen(sctx, gc->bg, 0);
 			break;
 		case 6:		/* DECOM */
 			screen_write_mode_clear(sctx, MODE_ORIGIN);
@@ -2215,7 +2247,7 @@ input_csi_dispatch_sm_private(struct input_ctx *ictx)
 			break;
 		case 3:		/* DECCOLM */
 			screen_write_cursormove(sctx, 0, 0, 1);
-			screen_write_clearscreen(sctx, ictx->cell.cell.bg);
+			screen_write_clearscreen(sctx, ictx->cell.cell.bg, 0);
 			break;
 		case 6:		/* DECOM */
 			screen_write_mode_set(sctx, MODE_ORIGIN);
@@ -2935,6 +2967,8 @@ input_reply_deccir(struct input_ctx *ictx)
 		sgr |= 0x04;
 	if (gc->attr & GRID_ATTR_REVERSE)
 		sgr |= 0x08;
+	if (gc->attr & GRID_ATTR_PROTECTED)
+		sca |= 0x01;
 	if (s->mode & MODE_ORIGIN)
 		mode |= 0x01;
 	if (s->cx == s->rright + 1) {
@@ -3206,6 +3240,15 @@ input_dcs_dispatch_decrqss(struct input_ctx *ictx)
 	log_debug("%s: '%c' \"%s\"", __func__, ictx->ch, ictx->interm_buf);
 
 	switch (entry->type) {
+	case INPUT_CSI_DECSCA:
+		/*
+		 * Character attribute query: DCS $ q " q ST
+		 * Reply: DCS 1 $ r 0 [; <Ps> ...] " q ST
+		 */
+		n = !!(ictx->cell.cell.attr & GRID_ATTR_PROTECTED) + 1;
+		log_debug("%s: DECSCA attributes %d", __func__, n);
+		input_reply(ictx, "\033P1$r0;%d\"q\033\\", n);
+		break;
 	case INPUT_CSI_DECSCL:
 		/*
 		 * VT conformance level query: DCS $ q " p ST
@@ -3492,7 +3535,7 @@ input_dcs_dispatch_deccir(struct input_ctx *ictx)
 	struct screen		*s = sctx->s;
 	struct input_cell	*cell = &ictx->cell;
 	int			 cx, cy, gl;
-	char			 sgr, mode;
+	char			 sgr, sca, mode;
 	char			*buf = ictx->input_buf, *ptr, *out;
 	const char		*g0, *g1, *g2, *g3;
 
@@ -3509,8 +3552,7 @@ input_dcs_dispatch_deccir(struct input_ctx *ictx)
 		return;
 	if ((sgr = input_dcs_parse_data(&ptr, &out, "SGR flags", ";")) == -1)
 		return;
-	/* Ignore for now. */
-	if (input_dcs_parse_data(&ptr, &out, "DECSCA flags", ";") == -1)
+	if ((sca = input_dcs_parse_data(&ptr, &out, "DECSCA flags", ";")) == -1)
 		return;
 	if ((mode = input_dcs_parse_data(&ptr, &out, "mode flags", ";")) == -1)
 		return;
@@ -3577,6 +3619,10 @@ input_dcs_dispatch_deccir(struct input_ctx *ictx)
 		cell->cell.attr |= GRID_ATTR_REVERSE;
 	else
 		cell->cell.attr &= ~GRID_ATTR_REVERSE;
+	if (sca & 0x01)
+		cell->cell.attr |= GRID_ATTR_PROTECTED;
+	else
+		cell->cell.attr &= ~GRID_ATTR_PROTECTED;
 	cell->set = gl;
 	if (strncmp(g0, "0", 1) == 0)
 		cell->g0set = 1;

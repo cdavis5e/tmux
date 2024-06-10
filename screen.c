@@ -647,7 +647,7 @@ screen_alternate_on(struct screen *s, struct grid_cell *gc, int cursor)
 	}
 	memcpy(&s->saved_cell, gc, sizeof s->saved_cell);
 
-	grid_view_clear(s->grid, 0, 0, sx, sy, 8);
+	grid_view_clear(s->grid, 0, 0, sx, sy, 8, 0);
 
 	if (s->rleft == 0 && s->rright == sx - 1) {
 		s->saved_flags = s->grid->flags;

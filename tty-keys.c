@@ -1479,6 +1479,8 @@ tty_keys_device_attributes(struct tty *tty, const char *buf, size_t len,
 			log_debug("%s: DA feature: %d", c->name, p[i]);
 			if (p[i] == 4)
 				tty_add_features(features, "sixel", ",");
+			if (p[i] == 6)
+				tty_add_features(features, "selerase", ",");
 			if (p[i] == 21)
 				tty_add_features(features, "margins", ",");
 			if (p[i] == 28)

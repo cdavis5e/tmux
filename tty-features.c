@@ -280,7 +280,7 @@ static const struct tty_feature tty_feature_hscroll = {
 	TERM_HSCROLL
 };
 
-/* Terminal supports DECFRA rectangle fill. */
+/* Terminal supports DEC rectanglular editing. */
 static const char *const tty_feature_rectfill_capabilities[] = {
 	"Rect",
 	NULL
@@ -376,6 +376,22 @@ static const struct tty_feature tty_feature_sixel = {
 	TERM_SIXEL
 };
 
+/* Terminal supports DEC selective erasure. */
+static const char *const tty_feature_selerase_capabilities[] = {
+	"Smpr=\E[1\"q",
+	"Rmpr=\E[2\"q",
+	"Sed=\E[?J",
+	"Sed1=\E[?1J",
+	"Sel=\E[?K",
+	"Sel1=\E[?1K",
+	NULL
+};
+static const struct tty_feature tty_feature_selerase = {
+	"selerase",
+	tty_feature_selerase_capabilities,
+	0
+};
+
 /* Available terminal features. */
 static const struct tty_feature *const tty_features[] = {
 	&tty_feature_256,
@@ -394,6 +410,7 @@ static const struct tty_feature *const tty_features[] = {
 	&tty_feature_overline,
 	&tty_feature_rectfill,
 	&tty_feature_rgb,
+	&tty_feature_selerase,
 	&tty_feature_sixel,
 	&tty_feature_strikethrough,
 	&tty_feature_sync,
