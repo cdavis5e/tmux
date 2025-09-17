@@ -20,6 +20,9 @@
 #include <sys/wait.h>
 #include <sys/uio.h>
 
+#ifdef HAVE_UTEMPTER
+#include <signal.h>
+#endif
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
