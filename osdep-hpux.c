@@ -32,6 +32,22 @@ osdep_get_cwd(__unused int fd)
 	return (NULL);
 }
 
+char *
+osdep_get_tmux_path(const char *argv0)
+{
+	static char	exe_path[PATH_MAX] = {0};
+	ssize_t		len;
+
+	if (exe_path[0])
+		return (exe_path);
+	if (argv0) {
+		if (find_tmux(argv0, exe_path, sizeof(exe_path)) == 0)
+			return (exe_path);
+	}
+
+	return (NULL);
+}
+
 struct event_base *
 osdep_event_init(void)
 {

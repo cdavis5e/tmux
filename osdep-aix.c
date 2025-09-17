@@ -32,6 +32,46 @@ osdep_get_cwd(__unused int fd)
 	return (NULL);
 }
 
+char *
+osdep_get_tmux_path(const char *argv0)
+{
+	static char	exe_path[PATH_MAX] = {0};
+	ssize_t		len;
+
+	if (exe_path[0])
+		return (exe_path);
+	/* n.b. This is not documented on IBM's proc(5) manpage, which means it
+	 * probably isn't supported yet (IBM documents everything). However,
+	 * in the past, they have added features for compatibility with
+	 * Solaris (cf. the lwp subdir, which is from Solaris)
+	 */
+	len = readlink("/proc/self/execname", exe_path, sizeof(exe_path));
+	if (len > 0) {
+		len = min(len, sizeof(exe_path) - 1);
+		exe_path[len] = '\0';
+		return (exe_path);
+	}
+	len = readlink("/proc/self/paths/a.out", exe_path, sizeof(exe_path));
+	if (len > 0) {
+		len = min(len, sizeof(exe_path) - 1);
+		exe_path[len] = '\0';
+		return (exe_path);
+	}
+	/* This _is_ documented, but it's not guaranteed to be a symlink */
+	len = readlink("/proc/self/objects/a.out", exe_path, sizeof(exe_path));
+	if (len > 0) {
+		len = min(len, sizeof(exe_path) - 1);
+		exe_path[len] = '\0';
+		return (exe_path);
+	}
+	if (argv0) {
+		if (find_tmux(argv0, exe_path, sizeof(exe_path)) == 0)
+			return (exe_path);
+	}
+
+	return (NULL);
+}
+
 struct event_base *
 osdep_event_init(void)
 {

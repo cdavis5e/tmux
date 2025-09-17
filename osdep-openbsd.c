@@ -41,6 +41,7 @@
 static struct kinfo_proc *cmp_procs(struct kinfo_proc *, struct kinfo_proc *);
 char			 *osdep_get_name(int, char *);
 char			 *osdep_get_cwd(int);
+char			 *osdep_get_tmux_path(const char *);
 struct event_base	 *osdep_event_init(void);
 
 static struct kinfo_proc *
@@ -149,6 +150,23 @@ osdep_get_cwd(int fd)
 	if (sysctl(name, 3, path, &pathlen, NULL, 0) != 0)
 		return (NULL);
 	return (path);
+}
+
+char *
+osdep_get_tmux_path(const char *argv0)
+{
+	static char	exe_path[PATH_MAX] = {0};
+	ssize_t		len;
+
+	if (exe_path[0])
+		return (exe_path);
+	/* On OpenBSD we only have argv0 */
+	if (argv0) {
+		if (find_tmux(argv0, exe_path, sizeof(exe_path)) == 0)
+			return (exe_path);
+	}
+
+	return (NULL);
 }
 
 struct event_base *

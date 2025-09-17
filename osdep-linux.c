@@ -20,6 +20,8 @@
 #include <sys/stat.h>
 #include <sys/param.h>
 
+#include <elf.h>
+#include <link.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
@@ -85,6 +87,32 @@ osdep_get_cwd(int fd)
 		target[n] = '\0';
 		return (target);
 	}
+	return (NULL);
+}
+
+char *
+osdep_get_tmux_path(const char *argv0)
+{
+	static char	exe_path[PATH_MAX] = {0};
+	ssize_t		len;
+
+	if (exe_path[0])
+		return (exe_path);
+#if defined(AT_EXECFN)
+	if (elf_aux_info(AT_EXECFN, exe_path, sizeof(exe_path)) == 0)
+		return (exe_path);
+#endif
+	len = readlink("/proc/self/exe", exe_path, sizeof(exe_path);
+	if (len > 0) {
+		len = min(len, sizeof(exe_path) - 1);
+		exe_path[len] = '\0';
+		return (exe_path);
+	}
+	if (argv0) {
+		if (find_tmux(argv0, exe_path, sizeof(exe_path)) == 0)
+			return (exe_path);
+	}
+
 	return (NULL);
 }
 

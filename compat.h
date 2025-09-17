@@ -164,6 +164,10 @@ void	warnx(const char *, ...);
 #include "compat/tree.h"
 #endif
 
+#ifdef HAVE_SYS_AUXV_H
+#include <sys/auxv.h>
+#endif
+
 #ifdef HAVE_BITSTRING_H
 #include <bitstring.h>
 #else
@@ -367,6 +371,11 @@ uint64_t	 htonll(uint64_t);
 uint64_t	 ntohll(uint64_t);
 #endif
 
+#ifndef HAVE_ELF_AUX_INFO
+/* elf_aux_info.c */
+int elf_aux_info(int, void *, size_t);
+#endif
+
 #ifndef HAVE_GETPEEREID
 /* getpeereid.c */
 int		getpeereid(int, uid_t *, gid_t *);
@@ -468,8 +477,9 @@ int		 utf8proc_mbtowc(wchar_t *, const char *, size_t);
 int		 utf8proc_wctomb(char *, wchar_t);
 #endif
 
-#ifdef NEED_FUZZING
 /* tmux.c */
+int		 find_tmux(const char *, char *, size_t);
+#ifdef NEED_FUZZING
 #define main __weak main
 #endif
 
