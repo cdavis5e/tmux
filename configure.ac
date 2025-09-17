@@ -118,6 +118,7 @@ AM_CONDITIONAL(IS_SUNCC, test "x$found_suncc" = xyes)
 AC_CHECK_HEADERS([ \
 	bitstring.h \
 	dirent.h \
+	elf.h \
 	fcntl.h \
 	inttypes.h \
 	libproc.h \
@@ -126,7 +127,10 @@ AC_CHECK_HEADERS([ \
 	paths.h \
 	pty.h \
 	stdint.h \
+	sys/auxv.h \
 	sys/dir.h \
+	sys/exec_elf.h \
+	sys/elf.h \
 	sys/ndir.h \
 	sys/tree.h \
 	ucred.h \
@@ -146,6 +150,7 @@ AC_SEARCH_LIBS(flock, bsd)
 AC_CHECK_FUNCS([ \
 	dirfd \
 	flock \
+	getauxval \
 	prctl \
 	proc_pidinfo \
 	getpeerucred \
@@ -158,6 +163,7 @@ AC_REPLACE_FUNCS([ \
 	cfmakeraw \
 	clock_gettime \
 	closefrom \
+	elf_aux_info \
 	explicit_bzero \
 	fgetln \
 	freezero \
@@ -178,6 +184,45 @@ AC_REPLACE_FUNCS([ \
 	strsep \
 ])
 AC_FUNC_STRNLEN
+
+# Check for the various names of the auxiliary vector type.
+AC_CHECK_TYPE(
+	AuxInfo,
+	,
+	[AC_CHECK_TYPE(
+		Elf_Auxinfo,
+		,
+		[AC_CHECK_TYPE(
+			[auxv_t],
+			,
+			,
+			[
+				#ifdef HAVE_ELF_H
+				#include <elf.h>
+				#elif defined(HAVE_SYS_ELF_H)
+				#include <sys/elf.h>
+				#elif defined(HAVE_SYS_EXEC_ELF_H)
+				#include <sys/exec_elf.h>
+				#endif
+			])],
+		[
+			#ifdef HAVE_ELF_H
+			#include <elf.h>
+			#elif defined(HAVE_SYS_ELF_H)
+			#include <sys/elf.h>
+			#elif defined(HAVE_SYS_EXEC_ELF_H)
+			#include <sys/exec_elf.h>
+			#endif
+		])],
+	[
+		#ifdef HAVE_ELF_H
+		#include <elf.h>
+		#elif defined(HAVE_SYS_ELF_H)
+		#include <sys/elf.h>
+		#elif defined(HAVE_SYS_EXEC_ELF_H)
+		#include <sys/exec_elf.h>
+		#endif
+	])
 
 # Check if strtonum works.
 AC_MSG_CHECKING([for working strtonum])

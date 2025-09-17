@@ -28,10 +28,13 @@
 #include <string.h>
 #include <unistd.h>
 
+#include <mach-o/dyld.h>
+
 #include "compat.h"
 
 char			*osdep_get_name(int, char *);
 char			*osdep_get_cwd(int);
+char			*osdep_get_tmux_path(const char *);
 struct event_base	*osdep_event_init(void);
 
 char *
@@ -87,6 +90,20 @@ osdep_get_cwd(int fd)
 		return (wd);
 	}
 #endif
+	return (NULL);
+}
+
+char *
+osdep_get_tmux_path(const char *argv0)
+{
+	static char	exe_path[2*PATH_MAX] = {0};
+	uint32_t	size = sizeof(exe_path);
+
+	(void)argv0;
+	if (exe_path[0])
+		return (exe_path);
+	if (_NSGetExecutablePath(exe_path, &size) == 0)
+		return (exe_path);
 	return (NULL);
 }
 

@@ -28,9 +28,12 @@
 #include <string.h>
 #include <unistd.h>
 
+#include "compat.h"
+
 struct kinfo_proc	*cmp_procs(struct kinfo_proc *, struct kinfo_proc *);
 char			*osdep_get_name(int, char *);
 char			*osdep_get_cwd(int);
+char			*osdep_get_tmux_path(const char *);
 struct event_base	*osdep_event_init(void);
 
 #ifndef nitems
@@ -122,6 +125,42 @@ error:
 char *
 osdep_get_cwd(int fd)
 {
+	return (NULL);
+}
+
+char *
+osdep_get_tmux_path(const char *argv0)
+{
+	static char	exe_path[PATH_MAX] = {0};
+	ssize_t		len;
+#ifdef KERN_PROC_PATHNAME
+	int		mib[] = {CTL_KERN, KERN_PROC, KERN_PROC_PATHNAME, getpid()};
+	size_t		oldlen;
+#endif
+
+	if (exe_path[0])
+		return (exe_path);
+#if defined(AT_EXECPATH)
+	if (elf_aux_info(AT_EXECPATH, exe_path, sizeof(exe_path)) == 0)
+		return (exe_path);
+#endif
+#ifdef KERN_PROC_PATHNAME
+	oldlen = sizeof(exe_path);
+	if (sysctl(mib, nitems(mib), exe_path, &oldlen, NULL, 0) == 0) {
+		return (exe_path);
+	}
+#endif
+	len = readlink("/proc/curproc/file", exe_path, sizeof(exe_path));
+	if (len > 0) {
+		len = min(len, sizeof(exe_path) - 1);
+		exe_path[len] = '\0';
+		return (exe_path);
+	}
+	if (argv0) {
+		if (find_tmux(argv0, exe_path, sizeof(exe_path)) == 0)
+			return (exe_path);
+	}
+
 	return (NULL);
 }
 

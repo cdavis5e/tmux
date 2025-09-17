@@ -2534,6 +2534,13 @@ format_cb_version(__unused struct format_tree *ft)
 	return (xstrdup(getversion()));
 }
 
+/* Callback for tmux_path. */
+static void *
+format_cb_tmux_path(__unused struct format_tree *ft)
+{
+	return (xstrdup(environ_find(global_environ, "TMUX_PATH")->value));
+}
+
 /* Callback for sixel_support. */
 static void *
 format_cb_sixel_support(__unused struct format_tree *ft)
@@ -3448,6 +3455,9 @@ static const struct format_table_entry format_table[] = {
 	},
 	{ "start_time", FORMAT_TABLE_TIME,
 	  format_cb_start_time
+	},
+	{ "tmux_path", FORMAT_TABLE_STRING,
+	  format_cb_tmux_path
 	},
 	{ "tree_mode_format", FORMAT_TABLE_STRING,
 	  format_cb_tree_mode_format

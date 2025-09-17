@@ -340,6 +340,50 @@ find_home(void)
 	return (home);
 }
 
+int
+find_tmux(const char *argv0, char *exe_path, size_t size)
+{
+	/* Ignore initial '-' from login */
+	if (argv0[0] == '-')
+		argv0++;
+	/* Absolute pathname? */
+	if (argv0[0] == '/') {
+		if (access(argv0, F_OK) == 0) {
+			strlcpy(exe_path, argv0, size);
+			return (0);
+		}
+	/* Relative pathname? */
+	} else if (strchr(argv0, '/') != NULL) {
+		getcwd(exe_path, size);
+		strlcat(exe_path, "/", size);
+		strlcat(exe_path, argv0, size);
+		if (access(exe_path, F_OK) == 0)
+			return (0);
+		exe_path[0] = '\0';
+	/* Found in $PATH? */
+	} else {
+		char	*path, *dir, *state;
+		if ((path = getenv("PATH")) == NULL)
+			return (-1);
+		if ((path = xstrdup(path)) == NULL)
+			return (-1);
+		for (dir = strtok_r(path, ":", &state);
+		     dir;
+		     dir = strtok_r(path, ":", &state)) {
+			strlcpy(exe_path, dir, size);
+			strlcat(exe_path, "/", size);
+			strlcat(exe_path, argv0, size);
+			if (access(exe_path, F_OK) == 0) {
+				free(path);
+				return (0);
+			}
+		}
+		free(path);
+		exe_path[0] = '\0';
+	}
+	return (-1);
+}
+
 const char *
 getversion(void)
 {
@@ -351,7 +395,7 @@ main(int argc, char **argv)
 {
 	char					*path = NULL, *label = NULL;
 	char					*cause, **var;
-	const char				*s, *cwd;
+	const char				*s, *cwd, *exe;
 	int					 opt, keys, feat = 0, fflag = 0;
 	uint64_t				 flags = 0;
 	const struct options_table_entry	*oe;
@@ -377,6 +421,8 @@ main(int argc, char **argv)
 		environ_put(global_environ, *var, 0);
 	if ((cwd = find_cwd()) != NULL)
 		environ_set(global_environ, "PWD", 0, "%s", cwd);
+	if ((exe = osdep_get_tmux_path(argv[0])) != NULL)
+		environ_set(global_environ, "TMUX_PATH", 0, "%s", exe);
 	expand_paths(TMUX_CONF, &cfg_files, &cfg_nfiles, 1);
 
 	while ((opt = getopt(argc, argv, "2c:CDdf:hlL:NqS:T:uUvV")) != -1) {

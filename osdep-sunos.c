@@ -19,6 +19,7 @@
 #include <sys/param.h>
 #include <sys/stat.h>
 
+#include <elf.h>
 #include <fcntl.h>
 #include <procfs.h>
 #include <stdio.h>
@@ -90,6 +91,39 @@ osdep_get_cwd(int fd)
 		target[n] = '\0';
 		return (target);
 	}
+	return (NULL);
+}
+
+char *
+osdep_get_tmux_path(const char *argv0)
+{
+	static char	exe_path[PATH_MAX] = {0};
+	ssize_t		len;
+
+	if (exe_path[0])
+		return (exe_path);
+#if defined(AT_SUN_EXECNAME)
+	if (elf_aux_info(AT_SUN_EXECNAME, exe_path, sizeof(exe_path)) == 0)
+		return (exe_path);
+#endif
+	len = readlink("/proc/self/execname", exe_path, sizeof(exe_path));
+	if (len > 0) {
+		len = min(len, sizeof(exe_path) - 1);
+		exe_path[len] = '\0';
+		return (exe_path);
+	}
+	/* Some versions of Solaris/illumos don't have the execname link */
+	len = readlink("/proc/self/paths/a.out", exe_path, sizeof(exe_path));
+	if (len > 0) {
+		len = min(len, sizeof(exe_path) - 1);
+		exe_path[len] = '\0';
+		return (exe_path);
+	}
+	if (argv0) {
+		if (find_tmux(argv0, exe_path, sizeof(exe_path)) == 0)
+			return (exe_path);
+	}
+
 	return (NULL);
 }
 

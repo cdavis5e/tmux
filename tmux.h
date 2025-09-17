@@ -989,7 +989,7 @@ struct screen_sel;
 struct screen_titles;
 struct screen {
 	char				*title;
-	char *path;
+	char				*path;
 	struct screen_titles		*titles;
 
 	struct grid			*grid;	  /* grid data */
@@ -3601,6 +3601,7 @@ int		 utf8_cstrhas(const char *, const struct utf8_data *);
 /* osdep-*.c */
 char		*osdep_get_name(int, char *);
 char		*osdep_get_cwd(int);
+char		*osdep_get_tmux_path(const char *);
 struct event_base *osdep_event_init(void);
 
 /* utf8-combined.c */
