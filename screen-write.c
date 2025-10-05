@@ -1046,8 +1046,16 @@ screen_write_backspace(struct screen_write_ctx *ctx)
 			cy--;
 			cx = s->rright;
 		}
-	} else
+	} else {
 		cx--;
+		/*
+		 * If the cursor was just off the margin, back up one more.
+		 * VT100 apps expect the cursor to be at the margin in this
+		 * case.
+		 */
+		if (cx == s->rright)
+			cx--;
+	}
 
 	screen_write_set_cursor(ctx, cx, cy);
 }
